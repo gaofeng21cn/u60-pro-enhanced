@@ -37,6 +37,8 @@
 - [回退](docs/RECOVERY.md)：保留原厂启动文件，不抹除用户配置。
 - [社区来源与许可证](THIRD_PARTY_NOTICES.md)。
 
+用 Codex 执行安装或验收时，仓库内的 [skills/u60-pro-enhanced](skills/u60-pro-enhanced/SKILL.md) 提供同一流程的操作边界（固件门禁、只读准备、写入前授权、回退路径）。
+
 本仓库当前以源码提供，没有对应的公开安装包 Release：请按下文构建，并运行准备工具生成与目标设备固件、设备身份绑定的本地安装目录。上游 [v0.1.3 Release](https://github.com/defilippisprafka-netizen/u60-pro-enhanced/releases/tag/v0.1.3-experimental) 提供仅支持 B28 的现成安装包。
 
 安装包没有任何现成节点、订阅、密码、Tailscale 身份、SSH 私钥或开发机配置。B31 首装保持直连，不自动接管现有 Wi-Fi、USB 网口或代理路由；要使用代理需自行初始化 Clash / Mihomo、添加订阅、选择节点并启用。B28 安装后保持原有启动行为。**不会升级固件、解锁 ADB 或创建云端账户。**

@@ -1,0 +1,4 @@
+interface:
+  display_name: "U60 Pro Enhanced"
+  short_description: "在 USB 连接的 U60 Pro 上安装、验收或回退本项目"
+  default_prompt: "使用 $u60-pro-enhanced 在一台 U60 Pro 上完成安装或验收，先给出可审阅的步骤与边界。"
