@@ -223,10 +223,17 @@ static const char *cc_active_node(const cJSON *cfg,const cJSON *proxies,const cJ
 static int cc_builtin(const char *name) {
  return !strcmp(name,"DIRECT")||!strcmp(name,"REJECT")||!strcmp(name,"REJECT-DROP")||!strcmp(name,"PASS")||!strcmp(name,"PASS-RULE")||!strcmp(name,"COMPATIBLE");
 }
-static const char *cc_node_group(const cJSON *cfg,const cJSON *rules) {
- if(!strcmp(jstr(cfg,"mode"),"global"))return "GLOBAL";
- const cJSON *r;cJSON_ArrayForEach(r,jget(rules,"rules"))if(!strcasecmp(jstr(r,"type"),"Match"))return jstr(r,"proxy");
- return "";
+static const char *cc_node_group(const cJSON *cfg,const cJSON *proxies,const cJSON *rules) {
+ const char *root="";const cJSON *r;
+ if(!strcmp(jstr(cfg,"mode"),"global"))root="GLOBAL";
+ else if(!strcmp(jstr(cfg,"mode"),"rule"))cJSON_ArrayForEach(r,jget(rules,"rules"))if(!strcasecmp(jstr(r,"type"),"Match")){root=jstr(r,"proxy");break;}
+ for(int depth=0;depth<16&&*root;depth++){
+  const cJSON *group=jget(proxies,root);if(strcmp(jstr(group,"type"),"Selector")||!cJSON_IsArray(jget(group,"all")))return "";
+  const char *selected=jstr(group,"now");const cJSON *nested=jget(proxies,selected);
+  if(strcmp(jstr(nested,"type"),"Selector")||!cJSON_IsArray(jget(nested,"all")))return root;
+  root=selected;
+ }
+ return *root?"":"";
 }
 static void control_clash_sections(cJSON *root) {
  cJSON *items=cc_section(root,"clash","Clash"),*data=jget(root,"data"),*state=cJSON_CreateObject();
@@ -242,7 +249,7 @@ static void control_clash_sections(cJSON *root) {
  cc_choice(choices,"开启代理","operation","start");cc_choice(choices,"关闭代理 · 直连","operation","stop");cJSON_AddBoolToObject(i,"confirm",1);
  i=cc_item(items,"mode","分流模式",!cfg?"服务未启动":!strcmp(jstr(cfg,"mode"),"rule")?"规则分流":!strcmp(jstr(cfg,"mode"),"global")?"全局代理":"旧直连模式 · 请选择","choice","clash.mode");choices=cJSON_AddArrayToObject(i,"choices");
  cc_choice(choices,"规则分流","mode","rule");cc_choice(choices,"全局代理","mode","global");cJSON_ReplaceItemInObject(i,"enabled",cJSON_CreateBool(online));
- const char *group=cc_node_group(cfg,live_rules);cJSON *g=jget(proxies,group),*p;
+ const char *group=cc_node_group(cfg,proxies,live_rules);cJSON *g=jget(proxies,group),*p;
  i=cc_item(items,"node","专线节点",node?node:"服务未启动或策略未知","choice","clash.select");cc_arg(i,"group",group);choices=cJSON_AddArrayToObject(i,"choices");
  cJSON *n;cJSON_ArrayForEach(n,jget(g,"all"))if(cJSON_IsString(n)&&!cc_builtin(n->valuestring))cc_choice(choices,n->valuestring,"name",n->valuestring);
  cJSON_ReplaceItemInObject(i,"enabled",cJSON_CreateBool(!strcmp(jstr(g,"type"),"Selector")&&cJSON_GetArraySize(choices)>0));

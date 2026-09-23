@@ -61,6 +61,47 @@ func arr(v any) []any {
 	}
 	return nil
 }
+func selectableNodes(proxies M, group M) []any {
+	selectable := make([]any, 0, len(arr(group["all"])))
+	for _, candidate := range arr(group["all"]) {
+		name, ok := candidate.(string)
+		if !ok {
+			continue
+		}
+		if name == "DIRECT" || name == "REJECT" || name == "REJECT-DROP" || name == "PASS" || name == "PASS-RULE" || name == "COMPATIBLE" {
+			continue
+		}
+		member := obj(proxies[name])
+		if _, nested := member["all"]; nested {
+			continue
+		}
+		selectable = append(selectable, name)
+	}
+	return selectable
+}
+func activeSelectorGroup(proxies M, root string) string {
+	seen := map[string]bool{}
+	for depth := 0; depth < 16 && root != ""; depth++ {
+		if seen[root] {
+			return ""
+		}
+		seen[root] = true
+		group := obj(proxies[root])
+		if !strings.EqualFold(text(group["type"]), "Selector") || group["all"] == nil {
+			return ""
+		}
+		selected := text(group["now"])
+		if selected == "" {
+			return root
+		}
+		nested := obj(proxies[selected])
+		if !strings.EqualFold(text(nested["type"]), "Selector") || nested["all"] == nil {
+			return root
+		}
+		root = selected
+	}
+	return ""
+}
 func number(v any) int {
 	switch n := v.(type) {
 	case float64:
@@ -271,9 +312,30 @@ func (a *App) clashState() M {
 	for _, n := range names(proxies) {
 		p := obj(proxies[n])
 		if _, ok := p["all"]; ok {
-			groups = append(groups, M{"name": n, "type": p["type"], "selected": p["now"], "nodes": p["all"]})
+			groups = append(groups, M{"name": n, "type": p["type"], "selected": p["now"], "nodes": p["all"], "selectable_nodes": selectableNodes(proxies, p)})
 		}
 	}
+	// Prefer the selector currently reached by the active rule/global root.
+	// This keeps nested subscription selectors out of the initial leaf list.
+	activeGroup := ""
+	if cfg, e := a.api("GET", "/configs", nil); e == nil {
+		root := ""
+		if text(cfg["mode"]) == "global" {
+			root = "GLOBAL"
+		} else if text(cfg["mode"]) == "rule" {
+			if liveRules, e := a.api("GET", "/rules", nil); e == nil {
+				for _, rule := range arr(liveRules["rules"]) {
+					entry := obj(rule)
+					if strings.EqualFold(text(entry["type"]), "Match") {
+						root = text(entry["proxy"])
+						break
+					}
+				}
+			}
+		}
+		activeGroup = activeSelectorGroup(proxies, root)
+	}
+	out["active_group"] = activeGroup
 	gn := named(root, "proxy-groups")
 	if gn != nil {
 		for _, g := range gn.Content {
@@ -301,6 +363,38 @@ func (a *App) clashState() M {
 	out["connections"] = connections
 	out["connection_count"] = len(allCon)
 	return out
+}
+func (a *App) selectProxy(args M) M {
+	group, node := text(args["group"]), text(args["name"])
+	if group == "" || node == "" || len(group) > 512 || len(node) > 512 {
+		return fail("请选择有效的策略组和节点")
+	}
+	path := "/proxies/" + url.PathEscape(group)
+	before, err := a.api("GET", path, nil)
+	if err != nil {
+		return fail(err.Error())
+	}
+	if !strings.EqualFold(text(before["type"]), "Selector") {
+		return fail("目标不是可手动切换的策略组")
+	}
+	found := false
+	for _, candidate := range arr(before["all"]) {
+		if text(candidate) == node {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fail("节点已变化，请刷新后重试")
+	}
+	if _, err = a.api("PUT", path, M{"name": node}); err != nil {
+		return fail(err.Error())
+	}
+	after, err := a.api("GET", path, nil)
+	if err != nil || text(after["now"]) != node {
+		return fail("切换结果未回读确认，请刷新状态后核对")
+	}
+	return success("节点已切换并回读确认")
 }
 func localRules(b []byte) []any {
 	out := []any{}
@@ -824,6 +918,8 @@ func (a *App) dispatch(r Request) M {
 	switch r.Action {
 	case "web.clash.state":
 		return a.clashState()
+	case "web.clash.select":
+		return a.selectProxy(r.Args)
 	case "web.clash.subscription_save":
 		return a.saveSubscription(r.Args)
 	case "web.clash.subscription_delete":

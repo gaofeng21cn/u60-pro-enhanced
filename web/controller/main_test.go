@@ -189,6 +189,125 @@ func TestStateNeverReturnsSubscriptionCredentials(t *testing.T) {
 		}
 	}
 }
+func TestNodeStateFollowsNestedActiveSelector(t *testing.T) {
+	a := testApp(t)
+	a.testAPI = func(method, path string, data any) (M, error) {
+		switch path {
+		case "/proxies":
+			return M{"proxies": M{
+				"GLOBAL":  M{"type": "Selector", "all": []any{"DIRECT", "Main"}, "now": "DIRECT"},
+				"Main":    M{"type": "Selector", "all": []any{"DIRECT", "Mojie"}, "now": "Mojie"},
+				"Mojie":   M{"type": "Selector", "all": []any{"Leaf 01", "Leaf 02"}, "now": "Leaf 02"},
+				"Leaf 01": M{"type": "Vless"}, "Leaf 02": M{"type": "Vless"},
+			}}, nil
+		case "/configs":
+			return M{"mode": "rule"}, nil
+		case "/rules":
+			return M{"rules": []any{M{"type": "Match", "proxy": "Main"}}}, nil
+		case "/providers/proxies":
+			return M{"providers": M{}}, nil
+		case "/providers/rules":
+			return M{"providers": M{}}, nil
+		case "/connections":
+			return M{"connections": []any{}}, nil
+		default:
+			return M{}, nil
+		}
+	}
+	s := a.clashState()
+	if text(s["active_group"]) != "Mojie" {
+		t.Fatalf("active leaf group = %v", s["active_group"])
+	}
+	groups := arr(s["groups"])
+	var main, mojie M
+	for _, raw := range groups {
+		g := obj(raw)
+		switch text(g["name"]) {
+		case "Main":
+			main = g
+		case "Mojie":
+			mojie = g
+		}
+	}
+	if got := arr(main["selectable_nodes"]); len(got) != 0 {
+		t.Fatalf("outer selector exposed as leaf choices: %v", got)
+	}
+	if got := arr(mojie["selectable_nodes"]); len(got) != 2 || got[0] != "Leaf 01" || got[1] != "Leaf 02" {
+		t.Fatalf("leaf selector choices = %v", got)
+	}
+}
+
+func TestActiveSelectorGroupStopsAtCurrentLeafSelector(t *testing.T) {
+	proxies := M{
+		"Main":  M{"type": "Selector", "all": []any{"DIRECT", "Mojie"}, "now": "Mojie"},
+		"Mojie": M{"type": "Selector", "all": []any{"Leaf"}, "now": "Leaf"},
+		"Leaf":  M{"type": "Vless"},
+	}
+	if got := activeSelectorGroup(proxies, "Main"); got != "Mojie" {
+		t.Fatalf("nested selector = %q", got)
+	}
+	proxies["Mojie"] = M{"type": "Selector", "all": []any{"Leaf"}, "now": ""}
+	if got := activeSelectorGroup(proxies, "Main"); got != "Mojie" {
+		t.Fatalf("unselected leaf selector = %q", got)
+	}
+	proxies["Mojie"] = M{"type": "Selector", "all": []any{"Main"}, "now": "Main"}
+	if got := activeSelectorGroup(proxies, "Main"); got != "" {
+		t.Fatalf("selector cycle accepted as %q", got)
+	}
+}
+
+func TestSelectProxyValidatesMembershipAndReadsBack(t *testing.T) {
+	a := testApp(t)
+	selected := "Old"
+	calls := []string{}
+	a.testAPI = func(method, path string, data any) (M, error) {
+		calls = append(calls, method+" "+path)
+		if path != "/proxies/Main" {
+			t.Fatalf("unexpected selector path %q", path)
+		}
+		switch method {
+		case "GET":
+			return M{"type": "Selector", "all": []any{"Old", "Leaf 01"}, "now": selected}, nil
+		case "PUT":
+			selected = text(obj(data)["name"])
+			return M{}, nil
+		default:
+			t.Fatalf("unexpected method %q", method)
+			return nil, errors.New("unexpected method")
+		}
+	}
+	r := a.dispatch(Request{Action: "web.clash.select", Args: M{"group": "Main", "name": "Leaf 01"}})
+	if !boolv(r["ok"]) || selected != "Leaf 01" {
+		t.Fatalf("selection was not confirmed: %v", r)
+	}
+	if strings.Join(calls, ",") != "GET /proxies/Main,PUT /proxies/Main,GET /proxies/Main" {
+		t.Fatalf("unexpected selection flow: %v", calls)
+	}
+
+	calls = nil
+	r = a.dispatch(Request{Action: "web.clash.select", Args: M{"group": "Main", "name": "Missing"}})
+	if boolv(r["ok"]) || len(calls) != 1 || calls[0] != "GET /proxies/Main" {
+		t.Fatalf("unknown node reached a write: result=%v calls=%v", r, calls)
+	}
+}
+
+func TestSelectProxyRejectsNonSelectorAndPathInjection(t *testing.T) {
+	a := testApp(t)
+	puts := 0
+	a.testAPI = func(method, path string, data any) (M, error) {
+		if method == "PUT" {
+			puts++
+		}
+		return M{"type": "URLTest", "all": []any{"Leaf"}, "now": "Leaf"}, nil
+	}
+	if boolv(a.selectProxy(M{"group": "Main", "name": "Leaf"})["ok"]) || puts != 0 {
+		t.Fatal("non-manual strategy was selected")
+	}
+	if boolv(a.selectProxy(M{"group": "../configs", "name": "global"})["ok"]) || puts != 0 {
+		t.Fatal("path injection was selected")
+	}
+}
+
 func TestRoutesValidation(t *testing.T) {
 	got, e := parseRoutes("192.168.1.7/24,192.168.1.0/24\n10.0.0.0/24")
 	if e != nil || len(got) != 2 || got[1] != "192.168.1.0/24" {

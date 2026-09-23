@@ -173,6 +173,7 @@
           </div>
         </div>
         <div id="page-nodes" class="hidden">
+          <div class="k" id="activeRoute" style="margin:4px 4px 10px"></div>
           <div class="chips" id="groupChips"></div>
           <div class="actions">
             <button class="btn primary" id="pingAll" type="button">测本组延迟</button>
@@ -206,6 +207,7 @@
       group: "",
       proxies: {},
       mode: "",
+      activeGroup: "",
       delays: JSON.parse(sessionStorage.getItem("u60.delays") || "{}")
     };
 
@@ -250,11 +252,41 @@
       return Object.values(proxies).filter((p) => p && p.type === "Selector" && p.hidden !== true && Array.isArray(p.all) && p.all.length);
     }
 
+    async function activeLeafGroup(proxies, mode) {
+      let root = "";
+      if (mode === "global") root = "GLOBAL";
+      else if (mode === "rule") {
+        const runtime = await api("/rules");
+        const match = (runtime.rules || []).find((rule) => rule && String(rule.type).toLowerCase() === "match");
+        root = match && match.proxy || "";
+      }
+      const seen = new Set();
+      while (root && !seen.has(root)) {
+        seen.add(root);
+        const group = proxies[root];
+        if (!group || group.type !== "Selector" || !Array.isArray(group.all)) return "";
+        const selected = group.now;
+        const nested = proxies[selected];
+        if (!nested || nested.type !== "Selector" || !Array.isArray(nested.all)) return root;
+        root = selected;
+      }
+      return "";
+    }
+
     function renderHome() {
       const groups = visibleGroups(state.proxies);
-      const main = groups.find((g) => /选择节点|PROXY|默认代理/.test(g.name)) || groups[0];
-      $("nowName").textContent = main && main.now ? main.now : "未选择";
-      const delay = main && state.delays[main.now];
+      const main = state.activeGroup && state.proxies[state.activeGroup] || groups.find((g) => /选择节点|PROXY|默认代理/.test(g.name)) || groups[0];
+      let current = main;
+      const seen = new Set();
+      while (current && current.now && !seen.has(current.name)) {
+        seen.add(current.name);
+        const nested = state.proxies[current.now];
+        if (!nested || nested.type !== "Selector") break;
+        current = nested;
+      }
+      const currentName = current && current.now || "未选择";
+      $("nowName").textContent = currentName;
+      const delay = state.delays[currentName];
       $("nowMeta").textContent = delay != null ? ("最近延迟 " + delay + " ms") : "点测速查看延迟";
       $("modePill").textContent = ({ rule: "规则", global: "全局", direct: "直连" }[state.mode] || state.mode || "—");
       $("modePill").className = "pill ok";
@@ -275,6 +307,7 @@
     function renderNodes() {
       const groups = visibleGroups(state.proxies);
       if (!state.group && groups[0]) state.group = groups[0].name;
+      $("activeRoute").textContent = state.activeGroup ? "当前代理流量使用：" + state.activeGroup : "当前流量路径尚未确认；请先核对分流模式和代理规则。";
       $("groupChips").innerHTML = groups.map((g) => (
         '<button class="chip ' + (g.name === state.group ? "on" : "") + '" data-g="' + encodeURIComponent(g.name) + '" type="button">' + g.name + "</button>"
       )).join("");
@@ -318,6 +351,8 @@
       const [cfg, px] = await Promise.all([api("/configs"), api("/proxies")]);
       state.mode = cfg.mode;
       state.proxies = px.proxies || {};
+      state.activeGroup = await activeLeafGroup(state.proxies, state.mode);
+      if (!state.group || !state.proxies[state.group] || !Array.isArray(state.proxies[state.group].all)) state.group = state.activeGroup || (visibleGroups(state.proxies)[0] || {}).name || "";
       $("statusLine").textContent = "已连接 · " + Object.keys(state.proxies).length + " 项";
       if (state.page === "home") renderHome();
       if (state.page === "nodes") renderNodes();
@@ -329,7 +364,7 @@
       await api("/proxies/" + group, { method: "PUT", body: JSON.stringify({ name }) });
       const now = await api("/proxies/" + group);
       if (now.now !== name) throw new Error("切换未生效");
-      toast("已切换到 " + name);
+      toast("已切换并回读：" + name);
       await refresh();
     }
 

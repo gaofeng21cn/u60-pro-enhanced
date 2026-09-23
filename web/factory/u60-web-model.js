@@ -9,6 +9,16 @@
  }
  function readable(value){if(value===null||typeof value==='undefined'||value==='')return '—';if(typeof value==='boolean')return value?'开启':'关闭';return String(value);}
  function bytes(v,speed){if(typeof v!=='number'||!isFinite(v)||v<0)return '—';var units=speed?['B/s','KB/s','MB/s','GB/s']:['B','KB','MB','GB','TB'],i=0;while(v>=1024&&i<units.length-1){v/=1024;i++;}return v.toFixed(v>=100||i===0?0:1)+' '+units[i];}
+ function selectableNodes(group){
+  if(!group)return [];
+  var source=Array.isArray(group.selectable_nodes)?group.selectable_nodes:group.nodes||[];
+  return source.filter(function(name){return typeof name==='string'&&!['DIRECT','REJECT','REJECT-DROP','PASS','PASS-RULE','COMPATIBLE'].includes(name);});
+ }
+ function defaultNodeGroup(groups,active){
+  groups=groups||[];
+  var current=groups.find(function(g){return g.name===active&&selectableNodes(g).length>0;});
+  return current||groups.find(function(g){return selectableNodes(g).length>0;})||groups[0]||null;
+ }
  // Web-only presentation: keep additions; stock controls stay in the stock pages.
  var additions={
   wifi:['relay','relay-scan'],usb:['role','status','wiring'],
@@ -28,5 +38,5 @@
    return Object.assign({},s,{title:s.id==='wifi'?'Wi-Fi 中继':s.id==='battery'?'充电与深待机':s.title,items:items});
   }).filter(function(s){return s.items.length>0;});
  }
- return {interactive:interactive,argumentsFor:argumentsFor,readable:readable,bytes:bytes,filterSections:filterSections};
+ return {interactive:interactive,argumentsFor:argumentsFor,readable:readable,bytes:bytes,selectableNodes:selectableNodes,defaultNodeGroup:defaultNodeGroup,filterSections:filterSections};
 }));

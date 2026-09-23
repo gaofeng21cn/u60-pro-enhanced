@@ -5,6 +5,7 @@ define(['jquery','service_helper','config/config','u60-web-model','u60-web-advan
  function node(tag,cls,text){var n=$('<'+tag+'>');if(cls)n.addClass(cls);if(text!==undefined)n.text(model.readable(text));return n;}
  function present(){return root&&root[0]&&document.documentElement.contains(root[0])&&location.hash==='#u60_enhanced';}
  function status(text,error){if(!present())return;root.find('.u60-notice').text(text||'').toggleClass('error',!!error).attr('role',error?'alert':'status');}
+ function advancedApi(){return {open:openItem,call:call,status:status,refresh:function(){lastRead=0;lastInteraction=0;advancedAt={};refresh(false);}};}
  function rpc(method,args){
   if(!config.isLogin)return $.Deferred().reject(new Error('登录已失效，请重新登录原厂后台')).promise();
   var request=helper.createRequest('zwrt_u60_panel',method,args);request.params[3].session=request.params[0];
@@ -82,7 +83,7 @@ define(['jquery','service_helper','config/config','u60-web-model','u60-web-advan
    var shortcuts=node('div','u60-shortcuts');[['network','中继与网口','Wi-Fi 上游、AUTO / WAN / LAN'],['clash','Clash','订阅、节点、规则与连接'],['tailscale','Tailscale','组网设备、出口与子网路由'],['device','充电与深待机','充电上限、供电方向、待机服务']].forEach(function(x){shortcuts.append(node('button','u60-shortcut').append(node('strong','',x[1]),node('span','',x[2]),node('b','','↗')).on('click',function(){selectTab(x[0]);}));});content.append(shortcuts);
    content.append(node('p','u60-help','热点、蜂窝网络、流量套餐、短信及路由设置，请使用原厂菜单。'));
 
-  }else{var grid=node('div','u60-grid');model.filterSections(snapshot.sections,tab).forEach(function(s){grid.append(renderSection(s));});content.append(grid);if(tab==='clash'||tab==='tailscale'){if(advancedData[tab])content.append(advanced.render(tab,advancedData[tab],{open:openItem}));else content.append(node('p','u60-help','正在加载高级管理功能…'));}}
+  }else{var grid=node('div','u60-grid');model.filterSections(snapshot.sections,tab).forEach(function(s){grid.append(renderSection(s));});content.append(grid);if(tab==='clash'||tab==='tailscale'){if(advancedData[tab])content.append(advanced.render(tab,advancedData[tab],advancedApi()));else content.append(node('p','u60-help','正在加载高级管理功能…'));}}
  }
  function loadAdvanced(force){
   if(!present()||busy||reading||advancedReading||(tab!=='clash'&&tab!=='tailscale')||dialog&&dialog[0].open)return;

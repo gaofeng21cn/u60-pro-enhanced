@@ -53,7 +53,7 @@ class Test(unittest.TestCase):
    (self.p/'config.yaml').write_text(f'mixed-port: {port}\nbind-address: "{bind}"\n');self.assertFalse(self.call('test_proxy')['ok'])
  def test_single_node_entry_per_mode_and_no_builtin_choices(self):
   self.node_fixture()
-  for mode,group in [('rule','默认代理'),('global','GLOBAL')]:
+  for mode,group in [('rule','示例分组B'),('global','示例分组A')]:
    API.mode=mode;API.proxies[group]['all']+=['DIRECT','REJECT','REJECT-DROP']
    items=self.call('state')['sections'][0]['items']
    switches=[i for i in items if i.get('action')=='clash.select']
@@ -75,6 +75,12 @@ class Test(unittest.TestCase):
   self.assertTrue(all(method=='GET' for method,path in API.calls))
  def test_missing_match_disables_node_control_instead_of_guessing(self):
   API.rules=[];items=self.call('state')['sections'][0]['items'];node=next(i for i in items if i['id']=='node');self.assertFalse(node['enabled'])
+ def test_nested_rule_selector_exposes_leaf_nodes_to_screen_picker(self):
+  API.proxies={'Main':{'type':'Selector','now':'Mojie','all':['DIRECT','Mojie']},'Mojie':{'type':'Selector','now':'Leaf 02','all':['Leaf 01','Leaf 02']},'Leaf 01':{'type':'Vless'},'Leaf 02':{'type':'Vless'},'GLOBAL':{'type':'Selector','now':'DIRECT','all':['DIRECT','Main']}}
+  API.rules=[{'type':'Match','proxy':'Main'}]
+  items=self.call('state')['sections'][0]['items'];node=next(i for i in items if i['id']=='node')
+  self.assertTrue(node['enabled']);self.assertEqual(node['args']['group'],'Mojie')
+  self.assertEqual([c['args']['name'] for c in node['choices']],['Leaf 01','Leaf 02'])
  def test_state_secret_allowlist(self):
   r=self.call('state');s=json.dumps(r);self.assertNotIn('secretURL',s);self.assertNotIn('fixture-not-real',s);self.assertEqual(r['data']['clash']['quota_remaining'],700);self.assertTrue(r['data']['clash']['online'])
  def node_fixture(self):

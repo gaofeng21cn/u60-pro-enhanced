@@ -1,5 +1,5 @@
 define(['jquery','u60-web-model'],function($,m){
- 'use strict';var subtab='subscriptions',nodeGroup='',query='';
+ 'use strict';var subtab='subscriptions',nodeGroup='',query='',nodeRequest=0;
  function n(tag,cls,text){var e=$('<'+tag+'>');if(cls)e.addClass(cls);if(text!==undefined)e.text(m.readable(text));return e;}
  function button(label,fn,cls){return n('button',cls||'u60-small-button',label).attr('type','button').on('click',fn);}
  function field(key,label,value,kind,required,choices){return {key:key,label:label,value:value||'',kind:kind||'text',required:!!required,choices:choices};}
@@ -24,12 +24,13 @@ define(['jquery','u60-web-model'],function($,m){
  }
  function nodes(data,api){
   var box=card('策略组与节点'),body=n('div','u60-card-body').appendTo(box),groups=data.groups||[],options=n('select','u60-input').attr('aria-label','策略组');
-  groups.forEach(function(g){options.append(n('option','',g.name+' · '+(g.selected||g.type)).val(g.name));});if(!groups.some(function(g){return g.name===nodeGroup;}))nodeGroup=groups[0]?.name||'';options.val(nodeGroup);body.append(options);
+  groups.forEach(function(g){var leafCount=m.selectableNodes(g).length,label=g.name+' · '+(g.selected||g.type);if(g.name===data.active_group)label+=' · 当前流量使用';if(leafCount!==(g.nodes||[]).length)label+=' · '+leafCount+' 个可选节点';options.append(n('option','',label).val(g.name));});if(!groups.some(function(g){return g.name===nodeGroup&&m.selectableNodes(g).length>0;}))nodeGroup=(m.defaultNodeGroup(groups,data.active_group)||{}).name||'';options.val(nodeGroup);body.append(options);if(data.active_group)body.append(n('p','u60-help','当前代理流量使用的策略组：'+data.active_group+'。修改其他策略组不会影响当前这条流量路径。'));
   var search=n('input','u60-input').attr({type:'search',placeholder:'搜索节点', 'aria-label':'搜索节点'}).val(query),list=n('div','u60-node-list');body.append(search,list);
   function render(){list.empty();var group=groups.filter(function(g){return g.name===nodeGroup;})[0];if(!group){list.append(n('p','u60-help','Clash 尚未提供策略组'));return;}
-   list.append(n('p','u60-help','当前：'+m.readable(group.selected)+' · '+group.type));var filtered=(group.nodes||[]).filter(function(name){return !['DIRECT','REJECT','REJECT-DROP','PASS','COMPATIBLE'].includes(name)&&name.toLowerCase().includes(query.toLowerCase());});
-   filtered.slice(0,120).forEach(function(name){var line=n('div','u60-node-row').append(n('span','',name));if(group.selected===name)line.append(n('span','u60-badge','当前'));var actions=n('div','u60-inline-actions');if(group.type==='Selector')actions.append(button('选择',function(){api.open(act('选择 '+name,'clash.select',{group:group.name,name:name}));}));actions.append(button('测速',function(){api.open(act('测试 '+name,'clash.delay',{name:name},false));}));line.append(actions);list.append(line);});
-   if(filtered.length>120)list.append(n('p','u60-help','显示前 120 项，请搜索缩小范围。'));if(!filtered.length)list.append(n('p','u60-help','没有匹配的节点。'));
+   var selectable=m.selectableNodes(group),nested=(group.nodes||[]).length-selectable.length;list.append(n('p','u60-help','当前：'+m.readable(group.selected)+' · '+group.type+(nested>0?' · '+nested+' 个子策略组':'')));
+   var filtered=selectable.filter(function(name){return name.toLowerCase().includes(query.toLowerCase());});
+   filtered.slice(0,120).forEach(function(name){var line=n('div','u60-node-row').append(n('span','',name));if(group.selected===name)line.append(n('span','u60-badge','当前'));var actions=n('div','u60-inline-actions');if(group.type==='Selector')actions.append(button('选择',function(){var request=++nodeRequest;list.find('button').prop('disabled',true);api.status('正在切换节点并核对运行状态…');Promise.resolve(api.call('web.clash.select',{group:group.name,name:name})).then(function(result){if(request!==nodeRequest)return;if(!result||result.ok!==true)throw new Error(result&&result.message||'切换未确认，请刷新后核对');api.status(result.message||'节点已切换并回读确认');api.refresh();},function(error){if(request===nodeRequest)api.status(error&&error.message||'切换失败，请刷新后核对',true);}).finally(function(){if(request===nodeRequest)list.find('button').prop('disabled',false);});},'u60-primary'));actions.append(button('测速',function(){api.open(act('测试 '+name,'clash.delay',{name:name},false));}));line.append(actions);list.append(line);});
+   if(filtered.length>120)list.append(n('p','u60-help','显示前 120 项，请搜索缩小范围。'));if(!filtered.length)list.append(n('p','u60-help',selectable.length?'没有匹配的节点。':'此策略组只指向其他策略组；请选择有具体节点的策略组。'));
   }
   options.on('change',function(){nodeGroup=this.value;render();});search.on('input',function(){query=this.value;render();});render();return box;
  }

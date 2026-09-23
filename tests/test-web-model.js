@@ -8,6 +8,14 @@ assert.deepStrictEqual(item.args,{section:'main_5g'});
 assert.throws(()=>m.argumentsFor(item,null,{ssid:'',days:'12'}));assert.throws(()=>m.argumentsFor(item,null,{ssid:'X',days:'NaN'}));
 assert.deepStrictEqual(m.argumentsFor({args:{group:'GLOBAL'}},{args:{name:'node'}}),{group:'GLOBAL',name:'node'});
 assert.strictEqual(m.bytes(1073741824,false),'1.0 GB');assert.strictEqual(m.bytes(null,true),'—');
+const nodeGroups=[
+ {name:'GLOBAL',nodes:['DIRECT','主策略'],selectable_nodes:[],selected:'DIRECT'},
+ {name:'主策略',nodes:['DIRECT','Mojie'],selectable_nodes:[],selected:'Mojie'},
+ {name:'Mojie',nodes:['Leaf 01','Leaf 02'],selectable_nodes:['Leaf 01','Leaf 02'],selected:'Leaf 02'}
+];
+assert.strictEqual(m.defaultNodeGroup(nodeGroups,'Mojie'),nodeGroups[2]);
+assert.deepStrictEqual(m.selectableNodes(nodeGroups[1]),[]);
+assert.strictEqual(m.defaultNodeGroup(nodeGroups,'missing'),nodeGroups[2]);
 const sections=[
  {id:'wifi',items:[{id:'power',action:'wifi.power'},{id:'relay',type:'toggle',action:'wifi.relay.on',args:{enabled:true}},{id:'relay-scan',action:'wifi.relay.scan'}]},
  {id:'usb',items:[{id:'role',action:'usb.role'},{id:'status',type:'info'}]},
