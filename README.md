@@ -45,7 +45,7 @@
 
 ## 从源码构建
 
-依赖：Zig 0.14.1、Go 1.26.5、Python 3、Git；主机测试还需 C 编译器与 Node.js。官方 Zig/Go 工具链请自行安装。
+依赖：Zig 0.14.1、Go 1.26.5、Python 3、Git；主机测试还需 C 编译器与 Node.js。官方 Zig/Go 工具链请自行安装，Zig 0.16 会构建失败。
 
 ```sh
 sh scripts/build.sh
@@ -53,7 +53,9 @@ sh scripts/test.sh
 python3 scripts/package.py
 ```
 
-可通过 `ZIG=/path/to/zig GO=/path/to/go sh scripts/build.sh` 指定编译器。结果位于 `dist/`。源码完整提供；`sdk/stub.c` 仅用于生成链接 SONAME，运行时使用目标设备自己的库，不分发中兴动态库。预编译程序不包含编译机绝对路径。
+可通过 `ZIG=/path/to/zig GO=/path/to/go sh scripts/build.sh` 指定编译器。结果位于 `dist/`，把设备信息和原厂网页资源绑定进安装目录的准备步骤见[安装与首次配置](docs/INSTALL.md)。
+
+源码完整提供；`sdk/stub.c` 仅用于生成链接 SONAME，运行时使用目标设备自己的库，不分发中兴动态库。预编译程序不包含编译机绝对路径。
 
 ## 来源
 
