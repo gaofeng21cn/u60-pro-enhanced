@@ -19,6 +19,11 @@ class Preparation(unittest.TestCase):
   self.assertIn(b'nested</li></ul></li><li class="navigation-drawer -u60-enhanced">',result)
   broken=b'<ul class="main-navigation-list"><script data-main="js/main">'
   with self.assertRaises(ValueError):m.patch_web('index.html',broken,m.sha(broken))
+ def test_menu_icon_is_injected_when_factory_head_is_present(self):
+  data=b'<head></head><ul class="main-navigation-list"><li>stock</li></ul><script data-main="js/main">'
+  result=m.patch_web('index.html',data,m.sha(data))
+  self.assertIn(b'id="u60-enhanced-navigation-style"',result)
+  self.assertIn(b'data:image/svg+xml',result)
  def test_ambiguous_marker_refused(self):
   data=b'require.config({paths:require.config({paths:'
   with self.assertRaises(ValueError):m.patch_web('js/main.js',data,m.sha(data))

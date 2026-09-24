@@ -93,7 +93,6 @@ define(['jquery','service_helper','config/config','u60-web-model','u60-web-advan
     if(advancedData.clash&&!hasProvider){var guide=node('section','u60-card u60-wide-card').append(node('h3','u60-card-title','首次配置')),gb=node('div','u60-card-body').appendTo(guide);gb.append(node('p','u60-help','还没有订阅。按顺序完成：'));['添加 Mihomo proxy-provider 订阅','更新订阅并确认加载出节点','选择节点并确认回读','保持规则分流并开启代理','用手机断开移动数据验证代理'].forEach(function(step,i){gb.append(node('p','u60-help',(i+1)+'. '+step));});content.append(guide);}
    }
   }}
- }
  function loadAdvanced(force){
   if(!present()||busy||reading||advancedReading||(tab!=='clash'&&tab!=='tailscale')||dialog&&dialog[0].open)return;
   /* Connections are the one live view: refresh faster there, and keep the

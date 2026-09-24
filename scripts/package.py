@@ -28,7 +28,7 @@ for n in ['setup-clash.sh','setup-tailscale.sh']:
 web=data/'u60-web';shutil.copyfile(R/'web/factory/mount.sh',web/'mount.sh');(web/'mount.sh').chmod(0o700)
 for local,remote in [('u60-web-advanced.js','js/u60-web-advanced.js'),('u60-enhanced.js','js/auth/u60-enhanced.js'),('u60-web-model.js','js/u60-web-model.js'),('u60-enhanced.html','tmpl/auth/u60-enhanced.html')]:
  dest=web/'public'/remote;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(R/'web/factory'/local,dest)
-(web/'public/u60-extension-version.txt').write_text('20260924-clash-ux-2\n')
+(web/'public/u60-extension-version.txt').write_text('20260924-clash-ux-3\n')
 (p/'init').mkdir();(p/'boot').mkdir()
 for local,remote in [('usb-isolate','u60-usb-isolate'),('usb-role','u60-usb-role'),('wifi-relay','u60-wifi-relay'),('standby','u60-standby'),('web','u60-web')]:
  shutil.copyfile(R/'panel'/(local+'-init.sh'),p/'init'/remote);(p/'init'/remote).chmod(0o700)
