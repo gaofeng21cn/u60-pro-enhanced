@@ -4,7 +4,7 @@ import argparse,datetime,gzip,hashlib,io,json,pathlib,re,shutil,subprocess,tarfi
 ROOT=pathlib.Path(__file__).resolve().parent
 FIRMWARE={b'BD_FLYMODEMMU5250V1.0.0B28':'B28',b'BD_CNMU5250V1.0.0B31':'B31'}
 WEB={'index.html':('<ul class="main-navigation-list">','<ul class="main-navigation-list">\n<li class="navigation-drawer -u60-enhanced"><a href="#u60_enhanced" class="parent-link link">增强功能</a></li>'),
- 'js/main.js':('require.config({paths:','require.config({urlArgs:"u60=20260922-8",paths:'),
+ 'js/main.js':('require.config({paths:','require.config({urlArgs:"u60=20260924-clash-ux-1",paths:'),
  'js/config/ufi/U60Pro/menu.js':('return[','return[{hash:"#u60_enhanced",path:"auth/u60-enhanced",requireLogin:!0,checkSIMStatus:!1},')}
 def sha(data):return hashlib.sha256(data).hexdigest()
 def patch_web(name,data,expected):
@@ -20,7 +20,7 @@ def patch_web(name,data,expected):
   if end is None:raise ValueError('Unclosed stock navigation')
   text=text[:end]+'<li class="navigation-drawer -u60-enhanced"><a href="#u60_enhanced" class="parent-link link">增强功能</a></li>'+text[end:]
   if text.count('data-main="js/main"')!=1:raise ValueError('Unexpected main script')
-  text=text.replace('data-main="js/main"','data-main="js/main.js?u60=20260922-8"')
+  text=text.replace('data-main="js/main"','data-main="js/main.js?u60=20260924-clash-ux-1"')
  else:text=text.replace(old,new,1)
  return text.encode('utf-8')
 def verify(root):
