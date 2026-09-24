@@ -342,6 +342,24 @@ func TestClashStateReportsProfileTakeover(t *testing.T) {
 	}
 }
 
+func TestInstalledReleaseComesFromTheMarkerFile(t *testing.T) {
+	a := testApp(t)
+	dir := t.TempDir()
+	a.panelDir = dir
+	if got := a.installedRelease(); got != "" {
+		t.Fatalf("missing marker should be empty, got %q", got)
+	}
+	os.WriteFile(filepath.Join(dir, "portable-release"), []byte("u60-pro-B31-20260924-072501\n"), 0600)
+	if got := a.installedRelease(); got != "u60-pro-B31-20260924-072501" {
+		t.Fatalf("release = %q", got)
+	}
+	// Oversized or unreadable markers must not become UI text.
+	os.WriteFile(filepath.Join(dir, "portable-release"), bytes.Repeat([]byte("x"), 4096), 0600)
+	if got := a.installedRelease(); got != "" {
+		t.Fatalf("oversized marker accepted: %q", got[:20])
+	}
+}
+
 func TestCoverageVerdictNamesTheActiveMode(t *testing.T) {
 	if _, s := coverageVerdict("clash", "rule", true, true, true, true, false); !strings.Contains(s, "规则代理") {
 		t.Fatalf("rule verdict = %q", s)

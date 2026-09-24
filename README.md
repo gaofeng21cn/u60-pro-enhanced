@@ -119,6 +119,7 @@ adb shell sh /data/u60-panel/setup-clash.sh
 | 目的 | 文档 |
 | --- | --- |
 | 第一次安装和初始化 | [安装与首次配置](docs/INSTALL.md) |
+| 已安装设备的原地升级 | [安装与首次配置 · 升级](docs/INSTALL.md) |
 | 日常切换和功能操作 | [使用与切换](docs/USAGE.md) |
 | 回退和保留数据 | [回退与保留数据](docs/RECOVERY.md) |
 | Wi-Fi 中继细节 | [Wi-Fi 中继说明](docs/WIFI-RELAY.md) |

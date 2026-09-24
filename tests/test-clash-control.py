@@ -220,6 +220,20 @@ class Test(unittest.TestCase):
   self.assertLessEqual(len(lines),10);self.assertTrue(all('成功' in l or '未完成' in l for l in lines))
   # History is a report, never a re-run: reading it issues no writes.
   self.assertFalse(any(m!='GET' for m,_ in API.calls))
+ def test_about_reports_installed_release_and_scope(self):
+  # The release marker sits beside the panel directory on the device.
+  (self.p.parent/'u60-panel').mkdir(exist_ok=True)
+  (self.p.parent/'u60-panel/portable-release').write_text('u60-pro-B31-20260924-072501\n')
+  rows=[i for i in self.call('state')['sections'][0]['items'] if i['id']=='about']
+  self.assertEqual(len(rows),1);self.assertEqual(rows[0]['action'],'clash.about');self.assertFalse(rows[0]['confirm'])
+  r=self.call('clash.about')
+  self.assertTrue(r['ok']);lines=r['report']['lines'];joined='\n'.join(lines)
+  self.assertIn('u60-pro-B31-20260924-072501',joined)
+  self.assertIn('未代理：IPv6',joined)
+  self.assertIn('未验证：USB/Wi-Fi 中继',joined)
+  self.assertIn('restore-boot',joined)
+  # Reading the version must not mutate anything.
+  self.assertFalse(any(m!='GET' for m,_ in API.calls))
  def test_delay_falls_back_to_provider_health_history(self):
   # Subscription nodes are absent from the top-level proxy map, so the
   # per-proxy delay endpoint 404s. The provider's measured history is the

@@ -33,7 +33,7 @@ for local,remote in [('u60-web-advanced.js','js/u60-web-advanced.js'),('u60-enha
 for local,remote in [('usb-isolate','u60-usb-isolate'),('usb-role','u60-usb-role'),('wifi-relay','u60-wifi-relay'),('standby','u60-standby'),('web','u60-web')]:
  shutil.copyfile(R/'panel'/(local+'-init.sh'),p/'init'/remote);(p/'init'/remote).chmod(0o700)
 shutil.copyfile(R/'scripts/portable/portable-boot.sh',p/'boot/portable-boot.sh')
-for n in ['check-device.sh','install-new-device.sh','restore-boot.sh','deploy-from-computer.py']:shutil.copyfile(R/'scripts/portable'/n,i/n)
+for n in ['check-device.sh','install-new-device.sh','upgrade-installed.sh','restore-boot.sh','deploy-from-computer.py']:shutil.copyfile(R/'scripts/portable'/n,i/n)
 m.manifest(out);m.verify(out)
 archive=out.parent/(out.name+'.tar.gz')
 with tarfile.open(archive,'w:gz') as tar:

@@ -23,6 +23,13 @@ function coverage(data,api){
   body.append(n('p','u60-help','UDP 与 IPv6 不经过代理；UDP 443 被拒绝以避免静默直连。'));
   if(data.ipv6_default_route)body.append(n('p','u60-help','检测到 IPv6 默认路由：客户端可能绕过代理。'));
   body.append(button('代理覆盖自检',function(){api.open(act('代理覆盖自检','web.clash.diagnose',{},false));},'u60-primary'));
+  /* State the installed version and the honest validation scope in one place. */
+  var about=n('details','u60-help');about.append(n('summary','','版本与验证范围'));
+  about.append(n('p','u60-help','已安装版本：'+(data.release||'未知')));
+  about.append(n('p','u60-help','已实机验证：增强屏幕、双击电源切换、原厂网页、热点上网、节点选择与回读、订阅节点连通延迟、规则/全局模式切换'));
+  about.append(n('p','u60-help','未验证：USB/Wi-Fi 中继、深度待机、充电控制、长时高负载、第二台设备首装'));
+  about.append(n('p','u60-help','回退：USB ADB 的 restore-boot；升级前的程序备份保留在设备本机'));
+  body.append(about);
   return box;
 }
  function subscriptions(data,api){

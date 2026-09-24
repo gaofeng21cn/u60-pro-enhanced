@@ -52,6 +52,7 @@ function findButton(node, label) {
 
 const base = {
   revision: 'rev', mode: 'rule', online: true, core_online: true, takeover: true, profile: 'clash',
+  release: 'u60-pro-B31-20260924-072501',
   active_group: '订阅 · 示例', active_path: ['选择节点', '订阅 · 示例'], active_node: '示例节点 A01',
   verdict: 'takeover', verdict_text: '规则代理已接管 IPv4 TCP 与 DNS', active_path_label: '默认代理路径',
   coverage_checked: true, coverage_tcp: true, coverage_dns: true,
@@ -81,6 +82,8 @@ for (const want of [
   '分流模式', '规则分流',
   '默认代理路径', 'MATCH → 选择节点 → 订阅 · 示例 → 示例节点 A01',
   'UDP 443 被拒绝',
+  '版本与验证范围', 'u60-pro-B31-20260924-072501',
+  '未验证：USB/Wi-Fi 中继',
 ]) {
   assert(view.includes(want), `missing ${want} in\n${view}`);
 }

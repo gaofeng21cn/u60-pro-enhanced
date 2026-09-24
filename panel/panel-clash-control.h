@@ -405,6 +405,10 @@ static const char *cc_node_group(const cJSON *cfg,const cJSON *proxies,const cJS
 static void control_clash_sections(cJSON *root) {
  cJSON *items=cc_section(root,"clash","Clash"),*data=jget(root,"data"),*state=cJSON_CreateObject();
  if(!data){data=cJSON_CreateObject();cJSON_AddItemToObject(root,"data",data);}cJSON_AddItemToObject(data,"clash",state);
+ /* Installed version and the honest validation scope, read from the release
+   * marker the installer writes. Never inferred from the running build. */
+ char *release=cc_readfile(CC_ROOT "/../u60-panel/portable-release");
+ if(release){char *nl=strchr(release,'\n');if(nl)*nl=0;cJSON_AddStringToObject(state,"release",*release?release:"未知");free(release);}
  cJSON *cfg=cc_get("/configs"),*all=cc_get("/proxies"),*proxies=jget(all,"proxies");int online=cfg&&proxies;
  cJSON_AddBoolToObject(state,"online",online);cJSON_AddStringToObject(state,"mode",jstr(cfg,"mode"));
  cJSON *providers=cc_get("/providers/proxies");
@@ -498,6 +502,8 @@ static void control_clash_sections(cJSON *root) {
  cc_item(items,"coverage","代理覆盖",verdict_text,"info",NULL);
  i=cc_item(items,"diagnose","代理覆盖自检","核对转发规则与未代理范围","action","clash.diagnose");cJSON_AddBoolToObject(i,"confirm",0);
  cc_item(items,"scope","代理范围","UDP 与 IPv6 不代理；UDP 443 被拒绝","info",NULL);
+ /* One place that states what has actually been verified on this device. */
+ i=cc_item(items,"about","版本与验证范围","查看已安装版本","action","clash.about");cJSON_AddBoolToObject(i,"confirm",0);
  /* Operation history is a report, not a control: it never re-runs anything. */
  if(cJSON_GetArraySize(jget(prefs,"history"))){
   char summary[80];snprintf(summary,sizeof(summary),"%d 条 · 查看结果与时间",cJSON_GetArraySize(jget(prefs,"history")));
@@ -587,6 +593,24 @@ static cJSON *cc_action_inner(const char *action,const cJSON *args) {
   if(!cc_prefs_toggle_favorite(name))return reply(0,"节点偏好保存失败，请重试");
   cJSON *prefs=cc_prefs();int on=cc_prefs_favorite(prefs,name);cJSON_Delete(prefs);
   return reply(1,on?"已加入收藏":"已取消收藏");
+ }else if(!strcmp(action,"clash.about")){
+  /* Installed version plus the scope that has actually been exercised here.
+   * Nothing on this page claims more coverage than the release notes do. */
+  cJSON *r=reply(1,"版本与验证范围"),*rep=cJSON_AddObjectToObject(r,"report"),*lines=cJSON_AddArrayToObject(rep,"lines");
+  cJSON_AddStringToObject(rep,"title","版本与验证范围");
+  char *release=cc_readfile(CC_ROOT "/../u60-panel/portable-release");
+  if(release){char *nl=strchr(release,'\n');if(nl)*nl=0;}
+  char line[240];
+  snprintf(line,sizeof(line),"已安装版本：%s",release&&*release?release:"未知");cJSON_AddItemToArray(lines,cJSON_CreateString(line));
+  free(release);
+  cJSON *v=cc_get("/version");
+  snprintf(line,sizeof(line),"Mihomo 核心：%s",*jstr(v,"version")?jstr(v,"version"):"不可用");cJSON_AddItemToArray(lines,cJSON_CreateString(line));cJSON_Delete(v);
+  snprintf(line,sizeof(line),"代理覆盖：IPv4 TCP 与 DNS；UDP 443 拒绝");cJSON_AddItemToArray(lines,cJSON_CreateString(line));
+  cJSON_AddItemToArray(lines,cJSON_CreateString("未代理：IPv6 与 443 以外的 UDP"));
+  cJSON_AddItemToArray(lines,cJSON_CreateString("已实机验证：增强屏幕、双击电源切换、原厂网页、热点上网、节点选择与回读、订阅节点连通延迟、规则/全局模式切换"));
+  cJSON_AddItemToArray(lines,cJSON_CreateString("未验证：USB/Wi-Fi 中继、深度待机、充电控制、长时高负载、第二台设备首装"));
+  cJSON_AddItemToArray(lines,cJSON_CreateString("回退：USB ADB 的 restore-boot；升级前的程序备份保留在设备本机"));
+  return r;
  }else if(!strcmp(action,"clash.history")){
   /* Read-only history report. Never re-runs anything and never prints request bodies. */
   int fd=-1;cJSON *prefs=cc_prefs_lock(0,&fd),*history=jget(prefs,"history");

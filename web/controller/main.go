@@ -371,6 +371,7 @@ func (a *App) clashState() M {
 	out["scope"] = M{"level": "ipv4_tcp_dns", "label": "IPv4 TCP 与 DNS", "udp": false, "ipv6": false}
 	out["active_path_label"] = "默认代理路径"
 	out["prefs"] = a.panelPrefs()
+	out["release"] = a.installedRelease()
 	gn := named(root, "proxy-groups")
 	if gn != nil {
 		for _, g := range gn.Content {
@@ -429,6 +430,15 @@ func coverageVerdict(profile, mode string, coreOnline, tcp, dns, verified, guard
 }
 // panelPrefs mirrors the device-side preference file written by the panel
 // control adapter. It is read-only here so only one writer mutates the file.
+// installedRelease reports the release marker the installer wrote, so the UI
+// states the installed version instead of inferring it from the running build.
+func (a *App) installedRelease() string {
+	b, e := os.ReadFile(a.panelPath("portable-release"))
+	if e != nil || len(b) > 128 {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
 func (a *App) panelPrefs() M {
 	out := M{"favorites": []any{}, "recents": []any{}, "delays": M{}}
 	b, e := os.ReadFile(filepath.Join(a.root, "panel-prefs.json"))

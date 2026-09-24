@@ -12,7 +12,7 @@ def main():
  p=argparse.ArgumentParser(description=__doc__)
  p.add_argument('--adb',default=shutil.which('adb'),help='path to adb; use the existing platform-tools binary')
  p.add_argument('--serial',help='required when more than one ADB device is connected')
- p.add_argument('action',choices=['check','install','start','restore-boot'],nargs='?',default='check')
+ p.add_argument('action',choices=['check','install','start','upgrade-check','upgrade','restore-boot'],nargs='?',default='check')
  a=p.parse_args()
  if not a.adb:p.error('Provide --adb /path/to/adb')
  expected={'SHA256SUMS'}
@@ -53,11 +53,16 @@ def main():
  expected_identity=(ROOT/'TARGET-IDENTITY-SHA256').read_text().strip()
  if not re.fullmatch(r'[0-9]{15}',identity) or not re.fullmatch(r'[0-9a-f]{64}',expected_identity) or hashlib.sha256(b'u60-imei-v1:'+identity.encode()).hexdigest()!=expected_identity:
   raise SystemExit('Target identity does not match the prepared package')
- if a.action in ['install','check']:
+ if a.action in ['install','check','upgrade-check','upgrade']:
   shell('mkdir -p /data/u60-packages\nchmod 700 /data/u60-packages\n[ ! -L '+remote+' ]\nmkdir -p '+remote+'\nchmod 700 '+remote)
   # Directory contents only; no workstation config, credential or Tailscale state is added.
   subprocess.run(adb+['push',str(ROOT)+'/.',remote+'/'],check=True,timeout=180)
- command='sh ./restore-boot.sh' if a.action=='restore-boot' else 'sh ./install-new-device.sh '+{'check':'check','install':'--install','start':'--start'}[a.action]
- print(shell('set -e\ncd '+remote+'\n'+command,120),end='')
+ command=('sh ./restore-boot.sh' if a.action=='restore-boot' else
+          'sh ./upgrade-installed.sh ' + {'upgrade-check':'--check','upgrade':'upgrade'}[a.action] if a.action in ('upgrade-check','upgrade') else
+          'sh ./install-new-device.sh '+{'check':'check','install':'--install','start':'--start'}[a.action])
+ # An upgrade restarts the web service and reloads the screen through the
+ # power-key path, which needs more than the first-install budget.
+ limit=300 if a.action in ('upgrade-check','upgrade') else 120
+ print(shell('set -e\ncd '+remote+'\n'+command,limit),end='')
  print('Package directory on target: '+remote)
 if __name__=='__main__':main()
