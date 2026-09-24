@@ -83,6 +83,8 @@ with tempfile.TemporaryDirectory(prefix='u60-control-test-') as tmp:
  for role in ['AUTO','LAN']:
   r=call('usb.role',{'role':role});assert r['ok'] and r['fixture_write_count']==1
   r=call('usb.role',{'role':role},{'reject_writes':True});assert not r['ok']
+ for action in ['usb.macnet.enable','usb.macnet.restore']:
+  r=call(action,{});assert r['ok'] and r['fixture_write_count']==1
  for badge,state in [('WAN','WAN'),('LAN','LAN'),('WAIT','RESTORING'),('ERROR','CONFLICT'),('','WAIT_ADAPTER')]:
   r=call('state',patch={'usb.role.status':{'ok':True,'requested':'AUTO','state':state,'badge':badge,'message':'状态样例'}})
   assert r['data']['usb']['badge']==badge and r['data']['usb']['state']==state

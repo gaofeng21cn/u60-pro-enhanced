@@ -340,6 +340,18 @@ static cJSON *usb_role_run(const char *role){
  if(cJSON_IsObject(r)&&(!cJSON_IsTrue(jget(r,"ok"))||ok))return r;
  cJSON_Delete(r);return reply(0,"网口协调服务尚未就绪");
 }
+static cJSON *usb_macnet_run(const char *command){
+ if(fixture){
+  cJSON *r=reply(1,"测试：USB 主机模式未提供");
+  cJSON_AddStringToObject(r,"mode","unknown");cJSON_AddNumberToObject(r,"carrier",0);
+  if(command&&strcmp(command,"status")){fixture_write_count++;}
+  return r;
+ }
+ char out[2048];char *av[]={"enable-usb-macnet.sh",(char *)(command?command:"status"),NULL};
+ int ok=run_cmd("/data/u60-panel/enable-usb-macnet.sh",av,NULL,out,sizeof(out));cJSON*r=cJSON_Parse(out);
+ if(cJSON_IsObject(r)){if(ok&&!cJSON_IsFalse(jget(r,"ok")))cJSON_ReplaceItemInObject(r,"ok",cJSON_CreateBool(0));return r;}
+ return reply(0,ok?"USB 兼容模式未返回状态":"USB 兼容模式切换失败");
+}
 static cJSON *state(void){
  cJSON *root=reply(1,"状态已读取；空值表示接口未提供数据");cJSON_AddObjectToObject(root,"data");cJSON_AddArrayToObject(root,"sections");wifi_sections(root);ts_sections(root);cJSON *d=jget(root,"data"),*s=section(root,"usb","USB 网络"),*usb=ubus_read("zwrt_bsp.usb","list"),*wan=ubus_read("zwrt_router.api","router_get_wan_mode_para");cJSON *ud=cJSON_AddObjectToObject(d,"usb");copy_value(ud,"mode",usb,"mode");copy_value(ud,"connected",usb,"connect");copy_value(ud,"adapter",usb,"usb2rj45");copy_value(ud,"wan_mode",wan,"opms_wan_mode");
  cJSON *us=usb_role_run(NULL);cJSON_AddStringToObject(ud,"badge",jstr(us,"badge"));copy_value(ud,"state",us,"state");copy_value(ud,"requested",us,"requested");
@@ -354,6 +366,13 @@ static cJSON *state(void){
  if(*jstr(us,"ipv4"))info(s,"ipv4","上级分配地址",us,"ipv4");
  if(*jstr(us,"gateway"))info(s,"gateway","上级网关",us,"gateway");
  item(s,"wiring","接线提示","info",!strcmp(jstr(us,"requested"),"AUTO")?"接上级 LAN 口；拔线回蜂窝":"接电脑；电脑关闭 Wi-Fi",NULL,0,NULL);
+ cJSON *mac=usb_macnet_run("status");
+ const char *mm=jstr(mac,"mode");
+ item(s,"macnet.mode","主机 USB 模式","info",!strcmp(mm,"ecm")?"ECM · macOS 兼容":!strcmp(mm,"rndis")?"RNDIS · 原厂兼容":"未知",NULL,0,NULL);
+ int can_enable=strcmp(mm,"unknown")&&strcmp(mm,"ecm");
+ cJSON *mi=item(s,"macnet.enable","Mac 兼容模式","action",!strcmp(mm,"ecm")?"已启用":"切换为 ECM","usb.macnet.enable",can_enable,"会短暂断开 USB；Mac 需等待重新枚举");
+ if(!strcmp(mm,"ecm")){cJSON_ReplaceItemInObject(mi,"id",cJSON_CreateString("macnet.restore"));cJSON_ReplaceItemInObject(mi,"label",cJSON_CreateString("恢复原厂 USB"));cJSON_ReplaceItemInObject(mi,"value",cJSON_CreateString("切回 RNDIS"));cJSON_ReplaceItemInObject(mi,"action",cJSON_CreateString("usb.macnet.restore"));cJSON_ReplaceItemInObject(mi,"enabled",cJSON_CreateBool(1));}
+ cJSON_Delete(mac);
  info(s,"mode","USB 模式",usb,"mode");cJSON_Delete(us);cJSON_Delete(usb);cJSON_Delete(wan);
  cJSON *profile=profile_run("status");copy_value(d,"network_profile",profile,"profile");s=section(root,"router","路由与上网");i=item(s,"profile","当前上网出口","info",*jstr(profile,"profile")?jstr(profile,"profile"):"未知",NULL,0,"代理在 Clash 页面控制，远程出口在组网页面控制");cJSON_Delete(profile);cJSON *lan=ubus_read("zwrt_router.api","router_get_dhcp_router");info(s,"lan_ip","局域网地址",lan,"lan_addr");info(s,"netmask","子网掩码",lan,"lan_netmask");cJSON_Delete(lan);read_stats(root);
 #ifdef HAVE_ADVANCED_CONTROL
@@ -378,7 +397,7 @@ static cJSON *dispatch(const cJSON *r){const char *a=jstr(r,"action");cJSON *arg
 #ifdef HAVE_CLASH_CONTROL
  if(!fixture){cJSON *cr=control_clash_action(a,args);if(cr)return cr;}
 #endif
- if(!strcmp(a,"usb.role")){const char*role=jstr(args,"role");if(strcmp(role,"AUTO")&&strcmp(role,"LAN"))return reply(0,"请选择 AUTO 或 LAN");return usb_role_run(role);}if(!strcmp(a,"internet.profile"))return reply(0,"上网出口编排尚需迁移验收；未修改路由");return reply(0,"不支持的操作");}
+ if(!strcmp(a,"usb.role")){const char*role=jstr(args,"role");if(strcmp(role,"AUTO")&&strcmp(role,"LAN"))return reply(0,"请选择 AUTO 或 LAN");return usb_role_run(role);}if(!strcmp(a,"usb.macnet.enable"))return usb_macnet_run("enable");if(!strcmp(a,"usb.macnet.restore"))return usb_macnet_run("restore");if(!strcmp(a,"internet.profile"))return reply(0,"上网出口编排尚需迁移验收；未修改路由");return reply(0,"不支持的操作");}
 int main(int argc,char **argv){signal(SIGPIPE,SIG_IGN);
  if(argc==3&&!strcmp(argv[1],"--fixture")){FILE *f=fopen(argv[2],"rb");if(f){char b[131072];size_t n=fread(b,1,sizeof(b)-1,f);b[n]=0;fclose(f);fixture=cJSON_Parse(b);}if(!fixture){puts("{\"ok\":false,\"message\":\"无效的测试 fixture\"}");return 0;}}
  else if(argc!=1){puts("{\"ok\":false,\"message\":\"只支持标准输入 JSON 请求\"}");return 0;}

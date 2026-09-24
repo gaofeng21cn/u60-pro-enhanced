@@ -14,7 +14,7 @@ adb shell "ubus -t 5 call zwrt_zte_mdm.api get_zwrt_common_info '{}' | jsonfilte
 
 1. 阅读 README 和[验证范围与风险](VALIDATION.md)；自行备份必要配置，确保知道如何通过 USB ADB 恢复。
 2. 自行启用 root ADB，安装 Google 官方 Android Platform Tools。解锁方法参考社区来源，兼容性自行核对；本项目不执行解锁，也不下载刷机固件。
-3. USB 数据线直接连接电脑，设备保持亮屏；拔下 USB 网卡，电脑保留其他可用网络用于下载依赖。不要远程跨 Tailscale 执行首次安装。
+3. USB 数据线直接连接电脑，设备保持亮屏；拔下 USB 网卡，电脑保留其他可用网络用于下载依赖。首次安装保持 RNDIS/ADB；Mac 的 USB LAN 兼容 ECM 只能在安装完成、管理面可回退后启用。不要远程跨 Tailscale 执行首次安装。
 4. `adb devices` 只连接一台待安装设备；`/data` 至少有 400 MB 可用空间。
 
 macOS/Linux 使用终端；Windows 可用 Python 3 与 `adb.exe`，Windows 完整流程尚未实测。若 adb 不在 PATH，后续每条命令加 `--adb /实际路径/adb`；多设备加 `--serial 目标序列号`，不要把它写到公开 issue 里。
