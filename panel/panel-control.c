@@ -340,17 +340,12 @@ static cJSON *usb_role_run(const char *role){
  if(cJSON_IsObject(r)&&(!cJSON_IsTrue(jget(r,"ok"))||ok))return r;
  cJSON_Delete(r);return reply(0,"网口协调服务尚未就绪");
 }
-static cJSON *usb_macnet_run(const char *command){
- if(fixture){
-  cJSON *r=reply(1,"测试：USB 主机模式未提供");
-  cJSON_AddStringToObject(r,"mode","unknown");cJSON_AddNumberToObject(r,"carrier",0);
-  if(command&&strcmp(command,"status")){fixture_write_count++;}
-  return r;
- }
- char out[2048];char *av[]={"enable-usb-macnet.sh",(char *)(command?command:"status"),NULL};
+static cJSON *usb_macnet_status(void){
+ if(fixture)return mock("usb.macnet.status");
+ char out[2048];char *av[]={"enable-usb-macnet.sh","status",NULL};
  int ok=run_cmd("/data/u60-panel/enable-usb-macnet.sh",av,NULL,out,sizeof(out));cJSON*r=cJSON_Parse(out);
- if(cJSON_IsObject(r)){if(ok&&!cJSON_IsFalse(jget(r,"ok")))cJSON_ReplaceItemInObject(r,"ok",cJSON_CreateBool(0));return r;}
- return reply(0,ok?"USB 兼容模式未返回状态":"USB 兼容模式切换失败");
+ if(ok&&cJSON_IsObject(r)&&cJSON_IsBool(jget(r,"ok")))return r;
+ cJSON_Delete(r);return reply(0,"USB 主机模式读取失败");
 }
 static cJSON *state(void){
  cJSON *root=reply(1,"状态已读取；空值表示接口未提供数据");cJSON_AddObjectToObject(root,"data");cJSON_AddArrayToObject(root,"sections");wifi_sections(root);ts_sections(root);cJSON *d=jget(root,"data"),*s=section(root,"usb","USB 网络"),*usb=ubus_read("zwrt_bsp.usb","list"),*wan=ubus_read("zwrt_router.api","router_get_wan_mode_para");cJSON *ud=cJSON_AddObjectToObject(d,"usb");copy_value(ud,"mode",usb,"mode");copy_value(ud,"connected",usb,"connect");copy_value(ud,"adapter",usb,"usb2rj45");copy_value(ud,"wan_mode",wan,"opms_wan_mode");
@@ -359,19 +354,22 @@ static cJSON *state(void){
  const char *port_state=jstr(us,"state");
  const char *short_state=!strcmp(port_state,"WAN")?"有线上网":!strcmp(port_state,"LAN")?"对外供网":!strcmp(port_state,"WAIT_ADAPTER")?(cJSON_IsNumber(jget(usb,"connect"))&&jget(usb,"connect")->valueint?"USB 直连":"未接网卡"):!strcmp(port_state,"WAIT_CABLE")?"等待网线":!strcmp(port_state,"CONFLICT")?"地址冲突":!strcmp(port_state,"RESTORING")?"恢复蜂窝":!strcmp(port_state,"NO_UPSTREAM")?"蜂窝上网":"切换中";
  cJSON_AddStringToObject(d,"usb_status",short_state);
- cJSON *i=item(s,"role","网口模式","choice",!strcmp(jstr(us,"requested"),"AUTO")?"AUTO · 自动有线":"LAN · 对外供网","usb.role",cJSON_IsTrue(jget(us,"ok")),"AUTO 接上级路由器 LAN 口；切 LAN 前先拔网线，再接电脑");
+ cJSON *i=item(s,"role","外接网卡模式","choice",!strcmp(jstr(us,"requested"),"AUTO")?"AUTO · 自动有线":"LAN · 对外供网","usb.role",cJSON_IsTrue(jget(us,"ok")),"AUTO 接上级路由器 LAN 口；切 LAN 前先拔网线，再接电脑");
  if(relay_enabled()){cJSON_ReplaceItemInObject(i,"enabled",cJSON_CreateBool(0));cJSON_ReplaceItemInObject(i,"reason",cJSON_CreateString("中继期间网口保持LAN，断开中继后可切AUTO"));}
  choice(i,"AUTO · 自动有线 / 蜂窝","role","AUTO");choice(i,"LAN · 给电脑供网","role","LAN");
- item(s,"status","实际状态","info",message,NULL,0,NULL);
+ item(s,"status","外接网卡状态","info",message,NULL,0,NULL);
  if(*jstr(us,"ipv4"))info(s,"ipv4","上级分配地址",us,"ipv4");
  if(*jstr(us,"gateway"))info(s,"gateway","上级网关",us,"gateway");
- item(s,"wiring","接线提示","info",!strcmp(jstr(us,"requested"),"AUTO")?"接上级 LAN 口；拔线回蜂窝":"接电脑；电脑关闭 Wi-Fi",NULL,0,NULL);
- cJSON *mac=usb_macnet_run("status");
- const char *mm=jstr(mac,"mode");
- item(s,"macnet.mode","主机 USB 模式","info",!strcmp(mm,"ecm")?"ECM · macOS 兼容":!strcmp(mm,"rndis")?"RNDIS · 原厂兼容":"未知",NULL,0,NULL);
- int can_enable=strcmp(mm,"unknown")&&strcmp(mm,"ecm");
- cJSON *mi=item(s,"macnet.enable","Mac 兼容模式","action",!strcmp(mm,"ecm")?"已启用":"切换为 ECM","usb.macnet.enable",can_enable,"会短暂断开 USB；Mac 需等待重新枚举");
- if(!strcmp(mm,"ecm")){cJSON_ReplaceItemInObject(mi,"id",cJSON_CreateString("macnet.restore"));cJSON_ReplaceItemInObject(mi,"label",cJSON_CreateString("恢复原厂 USB"));cJSON_ReplaceItemInObject(mi,"value",cJSON_CreateString("切回 RNDIS"));cJSON_ReplaceItemInObject(mi,"action",cJSON_CreateString("usb.macnet.restore"));cJSON_ReplaceItemInObject(mi,"enabled",cJSON_CreateBool(1));}
+ item(s,"wiring","接线提示","info",!strcmp(jstr(us,"requested"),"AUTO")?"网卡接上级 LAN 口；拔线回蜂窝":"网卡通过网线接下游电脑",NULL,0,NULL);
+ cJSON *mac=usb_macnet_status();const char *mm=jstr(mac,"mode");
+ int known=cJSON_IsTrue(jget(mac,"ok"));
+ copy_value(ud,"host",mac,"mode");
+ cJSON_AddItemToObject(ud,"gadget",mac?cJSON_Duplicate(mac,1):cJSON_CreateObject());
+ item(s,"macnet.mode","USB 直连协议","info",!known?"未知":!strcmp(mm,"ecm")?"ECM":!strcmp(mm,"rndis")?"RNDIS":"未知",NULL,0,NULL);
+ const char *link_state=!known?"读取失败":!cJSON_IsTrue(jget(mac,"bound"))?"USB 功能未绑定":!cJSON_IsTrue(jget(mac,"configured"))?"等待电脑识别":!cJSON_IsTrue(jget(mac,"carrier"))?"电脑已识别，网口未连接":!cJSON_IsTrue(jget(mac,"bridged"))?"网口已连接，未加入内网":"USB 内网链路已连接";
+ item(s,"macnet.link","USB 直连链路","info",link_state,NULL,0,NULL);
+ item(s,"macnet.help","Mac 连接说明","info","在线切换暂不可用；请通过 Wi-Fi 管理",NULL,0,NULL);
+ if(!strcmp(port_state,"WAIT_ADAPTER"))cJSON_ReplaceItemInObject(d,"usb_status",cJSON_CreateString(link_state));
  cJSON_Delete(mac);
  info(s,"mode","USB 模式",usb,"mode");cJSON_Delete(us);cJSON_Delete(usb);cJSON_Delete(wan);
  cJSON *profile=profile_run("status");copy_value(d,"network_profile",profile,"profile");s=section(root,"router","路由与上网");i=item(s,"profile","当前上网出口","info",*jstr(profile,"profile")?jstr(profile,"profile"):"未知",NULL,0,"代理在 Clash 页面控制，远程出口在组网页面控制");cJSON_Delete(profile);cJSON *lan=ubus_read("zwrt_router.api","router_get_dhcp_router");info(s,"lan_ip","局域网地址",lan,"lan_addr");info(s,"netmask","子网掩码",lan,"lan_netmask");cJSON_Delete(lan);read_stats(root);
@@ -397,7 +395,7 @@ static cJSON *dispatch(const cJSON *r){const char *a=jstr(r,"action");cJSON *arg
 #ifdef HAVE_CLASH_CONTROL
  if(!fixture){cJSON *cr=control_clash_action(a,args);if(cr)return cr;}
 #endif
- if(!strcmp(a,"usb.role")){const char*role=jstr(args,"role");if(strcmp(role,"AUTO")&&strcmp(role,"LAN"))return reply(0,"请选择 AUTO 或 LAN");return usb_role_run(role);}if(!strcmp(a,"usb.macnet.enable"))return usb_macnet_run("enable");if(!strcmp(a,"usb.macnet.restore"))return usb_macnet_run("restore");if(!strcmp(a,"internet.profile"))return reply(0,"上网出口编排尚需迁移验收；未修改路由");return reply(0,"不支持的操作");}
+ if(!strcmp(a,"usb.role")){const char*role=jstr(args,"role");if(strcmp(role,"AUTO")&&strcmp(role,"LAN"))return reply(0,"请选择 AUTO 或 LAN");return usb_role_run(role);}if(!strcmp(a,"usb.macnet.enable"))return reply(0,"USB 在线切换尚未通过枚举与回退验证，未修改设备");if(!strcmp(a,"usb.macnet.restore"))return reply(0,"USB 在线切换尚未通过枚举与回退验证，未修改设备");if(!strcmp(a,"internet.profile"))return reply(0,"上网出口编排尚需迁移验收；未修改路由");return reply(0,"不支持的操作");}
 int main(int argc,char **argv){signal(SIGPIPE,SIG_IGN);
  if(argc==3&&!strcmp(argv[1],"--fixture")){FILE *f=fopen(argv[2],"rb");if(f){char b[131072];size_t n=fread(b,1,sizeof(b)-1,f);b[n]=0;fclose(f);fixture=cJSON_Parse(b);}if(!fixture){puts("{\"ok\":false,\"message\":\"无效的测试 fixture\"}");return 0;}}
  else if(argc!=1){puts("{\"ok\":false,\"message\":\"只支持标准输入 JSON 请求\"}");return 0;}

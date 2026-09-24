@@ -84,7 +84,18 @@ with tempfile.TemporaryDirectory(prefix='u60-control-test-') as tmp:
   r=call('usb.role',{'role':role});assert r['ok'] and r['fixture_write_count']==1
   r=call('usb.role',{'role':role},{'reject_writes':True});assert not r['ok']
  for action in ['usb.macnet.enable','usb.macnet.restore']:
-  r=call(action,{});assert r['ok'] and r['fixture_write_count']==1
+  r=call(action,{});assert not r['ok'] and r['fixture_write_count']==0
+ for host in [
+  {'ok':True,'mode':'rndis','bound':True,'configured':True,'carrier':False},
+  {'ok':True,'mode':'ecm','bound':True,'configured':True,'carrier':True,'bridged':True},
+  {'ok':True,'mode':'ecm','bound':False},
+  {'ok':False,'mode':'unknown'}]:
+  r=call('state',patch={'usb.macnet.status':host})
+  items=next(x['items'] for x in r['sections'] if x['id']=='usb')
+  assert r['fixture_write_count']==0
+  assert all(not x['enabled'] for x in items if x['id'].startswith('macnet.'))
+  if host.get('bridged'):assert r['data']['usb_status']=='USB 内网链路已连接'
+  if not host['ok']:assert r['data']['usb_status']=='读取失败'
  for badge,state in [('WAN','WAN'),('LAN','LAN'),('WAIT','RESTORING'),('ERROR','CONFLICT'),('','WAIT_ADAPTER')]:
   r=call('state',patch={'usb.role.status':{'ok':True,'requested':'AUTO','state':state,'badge':badge,'message':'状态样例'}})
   assert r['data']['usb']['badge']==badge and r['data']['usb']['state']==state

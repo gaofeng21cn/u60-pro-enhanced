@@ -128,7 +128,7 @@ static void refresh_detail(struct app *a) {
  }
  if(a->more_sec==SEC_TS){detail_add(a,"连接状态",a->ts_state);detail_add(a,"组网地址",a->ts_ip);detail_add(a,"登录方式","授权链接在电脑端打开");}
  if(a->more_sec==SEC_DIAG){detail_add(a,"Mihomo API",a->clash_online?"可用":"不可达");detail_add(a,"Google 连通性",a->google);detail_add(a,"当前模式",mode_label(a->mode));}
- if(a->more_sec==SEC_USB)detail_add(a,"USB 网卡","插网卡后由原厂 WAN/LAN 自适应；Mac 电脑请在后台启用 ECM");
+ if(a->more_sec==SEC_USB)detail_add(a,"USB 网卡","USB 网卡按 LAN/AUTO 使用；Mac 直连尚未验证，请通过 Wi-Fi 管理");
  if(a->more_sec==SEC_SIM)detail_add(a,"卡管理","PIN 修改请用完整后台扫码，避免小屏误操作");
  if(a->more_sec==SEC_WIFI)detail_add(a,"Wi-Fi","名称与密码不在此修改");
  if(a->detail_off>=a->ndetail)a->detail_off=0;

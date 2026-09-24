@@ -2196,17 +2196,8 @@ int main(int argc, char **argv)
 	if (argc > 1 && strcmp(argv[1], "watch") == 0)
 		return watch_main();
 	if (argc > 1 && strcmp(argv[1], "usb-macnet") == 0) {
-		if (fork() == 0) {
-			setsid();
-			if (fork() == 0) {
-				sleep(2);
-				execl("/bin/sh", "sh", "/data/u60-panel/enable-usb-macnet.sh", (char *)NULL);
-				_exit(127);
-			}
-			_exit(0);
-		}
-		wait(NULL);
-		return 0;
+		fputs("USB live switching is unavailable pending enumeration and recovery validation.\n", stderr);
+		return 1;
 	}
 	return ui_main();
 }

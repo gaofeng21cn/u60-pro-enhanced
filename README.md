@@ -110,7 +110,7 @@ adb shell sh /data/u60-panel/setup-clash.sh
 
 - Mihomo 当前公开验证范围是 **IPv4 TCP 与 DNS**。普通 UDP、IPv6 完整接管、全面防泄漏和长期高负载尚未完成跨设备验证。
 - Wi-Fi 中继一次连接一个 2.4 GHz 或非 DFS 5 GHz 上游，不聚合双频带宽；上游断开时可能回退蜂窝。
-- USB 连接电脑作为下游时必须选择 **LAN**；AUTO 用于识别上级路由器的 WAN。Mac 需要在 USB 网口页面切换到 **ECM**，Windows/Android 使用 **RNDIS**；切换会短暂重建 USB gadget，等待主机重新枚举。Mac 未出现 USB Ethernet 时恢复 RNDIS，再通过 Wi-Fi/ADB 排查。
+- 外接 USB 转以太网适配器按 **LAN/AUTO** 选择下游供网或上游接入。USB 数据线直接接电脑使用独立的 RNDIS/ECM gadget；LAN 角色并不保证电脑能识别它。Mac 直连尚未验证，在线切换已停用，请通过 Wi-Fi 管理。
 - Tailscale 的子网路由和访问策略需要在 Tailscale 管理端批准，不会自动放开账号权限。
 - 回退只通过 USB ADB 的 `restore-boot`，不会删除订阅、Tailscale 身份或 Wi-Fi 凭据。详见[回退与保留数据](docs/RECOVERY.md)。
 
