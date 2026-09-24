@@ -71,6 +71,9 @@ func selectableNodes(proxies M, group M) []any {
 		if name == "DIRECT" || name == "REJECT" || name == "REJECT-DROP" || name == "PASS" || name == "PASS-RULE" || name == "COMPATIBLE" {
 			continue
 		}
+		if providerMetaName(name) {
+			continue
+		}
 		member := obj(proxies[name])
 		if _, nested := member["all"]; nested {
 			continue
@@ -78,6 +81,10 @@ func selectableNodes(proxies M, group M) []any {
 		selectable = append(selectable, name)
 	}
 	return selectable
+}
+
+func providerMetaName(name string) bool {
+	return strings.HasPrefix(name, "剩余流量：") || strings.HasPrefix(name, "套餐到期：") || strings.HasPrefix(name, "过滤掉")
 }
 
 // activeSelectorPath walks the selector chain reached by the active rule or
@@ -326,9 +333,16 @@ func (a *App) clashState() M {
 	out["providers"] = providers
 	groups := []any{}
 	groupNames := []string{}
-	all, err := a.api("GET", "/proxies", nil)
-	out["online"] = err == nil
+	// Read the active mode once and use it for both the path projection and
+	// the core liveness verdict.
+	rootPolicy, mode := a.activeRoot()
+	all, proxyErr := a.api("GET", "/proxies", nil)
 	proxies := obj(all["proxies"])
+	// A readable mode alone does not prove the core is serving its proxy API.
+	// Keep the web verdict aligned with the screen adapter: both /configs and
+	// /proxies must answer before the core is reported as running.
+	coreOnline := mode != "" && proxyErr == nil
+	out["online"] = coreOnline
 	for _, n := range names(proxies) {
 		p := obj(proxies[n])
 		if _, ok := p["all"]; ok {
@@ -337,7 +351,6 @@ func (a *App) clashState() M {
 	}
 	// Prefer the selector currently reached by the active rule/global root.
 	// This keeps nested subscription selectors out of the initial leaf list.
-	rootPolicy, mode := a.activeRoot()
 	path := activeSelectorPath(proxies, rootPolicy)
 	activeGroup := ""
 	if len(path) > 0 {
@@ -347,7 +360,7 @@ func (a *App) clashState() M {
 	out["active_path"] = path
 	out["active_node"] = pathNode(proxies, path)
 	out["mode"] = mode
-	out["core_online"] = mode != ""
+	out["core_online"] = coreOnline
 	profile := a.networkProfile()
 	out["profile"] = profile
 	out["takeover"] = profile == "clash"
@@ -365,7 +378,7 @@ func (a *App) clashState() M {
 	out["coverage_udp443_reject"] = verr == nil && boolv(redirect["udp443_reject"])
 	out["coverage_guard"] = verr == nil && boolv(redirect["guard"])
 	out["ipv6_default_route"] = verr == nil && boolv(verify["ipv6_default_route"])
-	verdict, verdictText := coverageVerdict(profile, mode, mode != "", tcpOK, dnsOK, verr == nil, boolv(redirect["guard"]))
+	verdict, verdictText := coverageVerdict(profile, mode, coreOnline, tcpOK, dnsOK, verr == nil, boolv(redirect["guard"]))
 	out["verdict"] = verdict
 	out["verdict_text"] = verdictText
 	out["scope"] = M{"level": "ipv4_tcp_dns", "label": "IPv4 TCP 与 DNS", "udp": false, "ipv6": false}
@@ -400,6 +413,7 @@ func (a *App) clashState() M {
 	out["connection_count"] = len(allCon)
 	return out
 }
+
 // coverageVerdict folds the separate facts into the one sentence the UI shows.
 // It never claims takeover unless the forwarding rules were actually read back.
 func coverageVerdict(profile, mode string, coreOnline, tcp, dns, verified, guard bool) (string, string) {
@@ -428,6 +442,7 @@ func coverageVerdict(profile, mode string, coreOnline, tcp, dns, verified, guard
 	}
 	return "direct", "未启用代理，当前直连"
 }
+
 // panelPrefs mirrors the device-side preference file written by the panel
 // control adapter. It is read-only here so only one writer mutates the file.
 // installedRelease reports the release marker the installer wrote, so the UI
@@ -493,6 +508,7 @@ func (a *App) selectProxy(args M) M {
 	a.recordRecent(node)
 	return success("节点已切换并回读确认，新连接将使用该节点")
 }
+
 // recordRecent keeps the shared recent-node list in sync for both UIs. The
 // screen adapter writes the same file, so updates take the same exclusive lock
 // and land through an atomic rename. Only node names are stored.
@@ -515,6 +531,7 @@ func (a *App) recordRecent(node string) {
 		prefs["recents"] = recents
 	})
 }
+
 // updatePrefs applies one mutation under the same lock file the panel uses and
 // writes the result atomically at 0600.
 func (a *App) updatePrefs(mutate func(M)) error {
@@ -593,6 +610,7 @@ func (a *App) toggleFavorite(args M) M {
 	}
 	return success("已取消收藏")
 }
+
 // setMode applies the proxy mode through the shared writer lock and refuses to
 // claim global proxying while GLOBAL still resolves to a direct policy.
 func (a *App) setMode(args M) M {
@@ -658,11 +676,13 @@ func resolveSelectorLeaf(proxies M, group string) string {
 	}
 	return ""
 }
+
 // persistMode writes the same "mode" sidecar the panel adapter maintains so a
 // restart keeps the chosen mode without rewriting the whole config.
 func (a *App) persistMode(mode string) error {
 	return atomicWrite(filepath.Join(a.root, "mode"), []byte(mode+"\n"), 0600)
 }
+
 // setAutoSelect adds or updates a bounded url-test group that follows a
 // subscription provider, or removes it again for manual control. Latency-based
 // selection reuses the core's own health checks instead of a new scheduler.

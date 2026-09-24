@@ -247,6 +247,19 @@ else:
                              f'{state} must not be part of the replace plan')
         self.assertTrue(any(line.endswith('/data/u60-panel/u60-panel') for line in listed))
 
+    def test_accepts_a_prior_upgrade_backup_when_install_backup_is_older(self):
+        install_backup = self.target / 'data/u60-install-backups' / self.installed_id
+        for path in install_backup.iterdir():
+            path.unlink()
+        install_backup.rmdir()
+        previous = self.target / 'data/u60-upgrade-backups' / 'prior-release'
+        previous.mkdir(parents=True)
+        (previous / 'to-release').write_text(self.installed_id + '\n')
+        (previous / 'BACKUP-SHA256SUMS').write_text('verified\n')
+        r = self.run_upgrade('--check')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('user configuration is preserved', r.stdout)
+
     def test_upgrade_replaces_programs_and_preserves_user_state(self):
         upgraded = dict(self.programs)
         upgraded['data/u60-panel/u60-panel'] = '#!/bin/sh\necho new-version\n'

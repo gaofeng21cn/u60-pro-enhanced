@@ -59,7 +59,7 @@ python3 deploy-from-computer.py upgrade-check
 python3 deploy-from-computer.py upgrade
 ```
 
-`upgrade-check` 只确认固件、设备身份、已有安装记录和可用空间，不写设备，也不构成升级授权。`upgrade` 只替换程序与网页资源，逐个文件先备份哈希再替换、替换后逐字节核对，然后分别重启网页和屏幕并回读；代理配置、订阅、节点收藏与最近使用、Tailscale 身份和各项本机选择都不改动。任何一步失败会自动恢复上一版本程序，备份保留在 `/data/u60-upgrade-backups/<release>`。
+`upgrade-check` 只确认固件、设备身份、已有安装记录、当前版本对应的首次安装备份或上一轮升级备份，以及可用空间，不写设备，也不构成升级授权。`upgrade` 只替换程序与网页资源，逐个文件先备份哈希再替换、替换后逐字节核对，然后分别重启网页和屏幕并回读；代理配置、订阅、节点收藏与最近使用、Tailscale 身份和各项本机选择都不改动。任何一步失败会自动恢复上一版本程序，备份保留在 `/data/u60-upgrade-backups/<release>`。
 
 准备升级包时如果设备已经挂载增强网页，`prepare.py` 会因原厂页面指纹不符而拒绝：先运行 `/etc/init.d/u60-web stop` 让原厂页面重新可见，准备完成后再 `/etc/init.d/u60-web start`。
 

@@ -115,6 +115,14 @@ class Test(unittest.TestCase):
   items=self.call('state')['sections'][0]['items'];delay=next(i for i in items if i['id']=='delay')
   self.assertEqual([c['args']['name'] for c in delay['choices']],['示例分组A','示例节点B'])
   self.assertTrue(all(method=='GET' for method,path in API.calls))
+ def test_provider_metadata_is_not_a_screen_node_or_delay_target(self):
+  API.proxies={'默认代理':{'type':'Selector','now':'示例节点B','all':['剩余流量：9409.05 GB','套餐到期：长期有效','过滤掉14条线路','示例节点B','DIRECT']},'示例节点B':{'type':'Shadowsocks'}}
+  API.rules=[{'type':'Match','proxy':'默认代理'}]
+  items=self.call('state')['sections'][0]['items']
+  for item_id in ('node','delay'):
+   item=next(i for i in items if i['id']==item_id)
+   names=[c['args']['name'] for c in item['choices']]
+   self.assertEqual(names,['示例节点B'])
  def test_missing_match_disables_node_control_instead_of_guessing(self):
   API.rules=[];items=self.call('state')['sections'][0]['items'];node=next(i for i in items if i['id']=='node');self.assertFalse(node['enabled'])
  def test_nested_rule_selector_exposes_leaf_nodes_to_screen_picker(self):

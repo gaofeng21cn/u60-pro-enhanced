@@ -26,7 +26,24 @@ case "$INSTALLED" in u60-pro-B28-[0-9]*|u60-pro-B31-[0-9]*) ;; *) fail 'No exist
 VARIANT=${ID#u60-pro-};VARIANT=${VARIANT%%-*}
 INSTALLED_VARIANT=${INSTALLED#u60-pro-};INSTALLED_VARIANT=${INSTALLED_VARIANT%%-*}
 [ "$VARIANT" = "$INSTALLED_VARIANT" ] || fail 'Installed and candidate releases target different firmware variants'
-[ -d "/data/u60-install-backups/$INSTALLED" ] || fail 'Missing the first-install backup; use the documented recovery path instead'
+# A later release may already be installed through the in-place upgrade path.
+# In that case the prior upgrade backup (whose to-release is the current
+# installed release) is the authoritative rollback point; requiring the
+# original first-install directory to have the same name would reject a valid
+# upgrade chain.
+RECOVERY_FOUND=0
+if [ -d "/data/u60-install-backups/$INSTALLED" ]; then
+ RECOVERY_FOUND=1
+else
+ for candidate in /data/u60-upgrade-backups/*; do
+  [ -d "$candidate" ] || continue
+  [ "$(cat "$candidate/to-release" 2>/dev/null || true)" = "$INSTALLED" ] || continue
+  [ -s "$candidate/BACKUP-SHA256SUMS" ] || continue
+  RECOVERY_FOUND=1
+  break
+ done
+fi
+[ "$RECOVERY_FOUND" = 1 ] || fail 'Missing a verified recovery backup; use the documented recovery path instead'
 
 # Paths owned by the user or by the running device. These are never replaced:
 # credentials, the chosen profile, node preferences, sleep/role choices and the

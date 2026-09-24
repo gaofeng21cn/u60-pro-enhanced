@@ -390,6 +390,13 @@ static const char *cc_active_node(const cJSON *cfg,const cJSON *proxies,const cJ
 static int cc_builtin(const char *name) {
  return !strcmp(name,"DIRECT")||!strcmp(name,"REJECT")||!strcmp(name,"REJECT-DROP")||!strcmp(name,"PASS")||!strcmp(name,"PASS-RULE")||!strcmp(name,"COMPATIBLE");
 }
+/* Provider metadata entries are not proxy leaves. Mihomo exposes values such
+ * as remaining quota and filtered-node counts in the provider's `proxies`
+ * array; they must never become selectable screen choices or delay targets. */
+static int cc_provider_meta(const char *name) {
+ if(!name||!*name)return 1;
+ return !strncmp(name,"剩余流量：",15)||!strncmp(name,"套餐到期：",15)||!strncmp(name,"过滤掉",9);
+}
 static const char *cc_node_group(const cJSON *cfg,const cJSON *proxies,const cJSON *rules) {
  const char *root="";const cJSON *r;
  if(!strcmp(jstr(cfg,"mode"),"global"))root="GLOBAL";
@@ -453,7 +460,7 @@ static void control_clash_sections(cJSON *root) {
  }
  const char *group=cc_node_group(cfg,proxies,live_rules);cJSON *g=jget(proxies,group),*p;
  i=cc_item(items,"node","专线节点",node?node:"服务未启动或策略未知","choice","clash.select");cc_arg(i,"group",group);choices=cJSON_AddArrayToObject(i,"choices");
- cJSON *n;cJSON_ArrayForEach(n,jget(g,"all"))if(cJSON_IsString(n)&&!cc_builtin(n->valuestring))cc_choice(choices,n->valuestring,"name",n->valuestring);
+ cJSON *n;cJSON_ArrayForEach(n,jget(g,"all"))if(cJSON_IsString(n)&&!cc_builtin(n->valuestring)&&!cc_provider_meta(n->valuestring))cc_choice(choices,n->valuestring,"name",n->valuestring);
  cJSON_ReplaceItemInObject(i,"enabled",cJSON_CreateBool(!strcmp(jstr(g,"type"),"Selector")&&cJSON_GetArraySize(choices)>0));
  /* Favorites and recents live in the shared device preference file so the
    * screen, the web page and the controller all agree on known-good nodes. */
@@ -469,7 +476,7 @@ static void control_clash_sections(cJSON *root) {
  if(cJSON_GetArraySize(jget(prefs,"recents"))){
   i=cc_item(items,"recent","最近使用","快速回到上一个节点","choice","clash.select");cc_arg(i,"group",group);choices=cJSON_AddArrayToObject(i,"choices");
   cJSON *recent;cJSON_ArrayForEach(recent,jget(prefs,"recents")){
-   if(!cJSON_IsString(recent))continue;
+   if(!cJSON_IsString(recent)||cc_provider_meta(recent->valuestring))continue;
    int live=0;cJSON_ArrayForEach(n,jget(g,"all"))if(cJSON_IsString(n)&&!strcmp(n->valuestring,recent->valuestring))live=1;
    if(!live)continue;
    int ms=cc_prefs_delay(prefs,recent->valuestring);char label[640];
@@ -482,7 +489,7 @@ static void control_clash_sections(cJSON *root) {
  if(cJSON_GetArraySize(jget(prefs,"favorites"))){
   i=cc_item(items,"favorite","收藏节点","轻点快速切换","choice","clash.select");cc_arg(i,"group",group);choices=cJSON_AddArrayToObject(i,"choices");
   cJSON *fav;cJSON_ArrayForEach(fav,jget(prefs,"favorites")){
-   if(!cJSON_IsString(fav))continue;
+   if(!cJSON_IsString(fav)||cc_provider_meta(fav->valuestring))continue;
    int live=0;cJSON_ArrayForEach(n,jget(g,"all"))if(cJSON_IsString(n)&&!strcmp(n->valuestring,fav->valuestring))live=1;
    if(!live)continue;
    int ms=cc_prefs_delay(prefs,fav->valuestring);char label[640];
@@ -511,7 +518,7 @@ static void control_clash_sections(cJSON *root) {
  }
  i=cc_item(items,"delay","连通延迟","选择节点查看延迟","choice","clash.delay");choices=cJSON_AddArrayToObject(i,"choices");
  /* Use the same choices as the node selector, never its parent group. */
- cJSON_ArrayForEach(n,jget(g,"all"))if(cJSON_IsString(n)&&!cc_builtin(n->valuestring)){
+ cJSON_ArrayForEach(n,jget(g,"all"))if(cJSON_IsString(n)&&!cc_builtin(n->valuestring)&&!cc_provider_meta(n->valuestring)){
   int exists=0;cJSON *v;cJSON_ArrayForEach(v,choices)if(!strcmp(jstr(jget(v,"args"),"name"),n->valuestring))exists=1;
   if(!exists)cc_choice(choices,n->valuestring,"name",n->valuestring);
  }

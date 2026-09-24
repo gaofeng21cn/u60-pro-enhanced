@@ -603,6 +603,32 @@ func TestClashDiagnoseSeparatesCoreFromDirectProfile(t *testing.T) {
 	}
 }
 
+func TestClashStateRequiresBothCoreEndpoints(t *testing.T) {
+	a := testApp(t)
+	a.testAPI = func(method, path string, data any) (M, error) {
+		switch path {
+		case "/configs":
+			return M{"mode": "rule"}, nil
+		case "/proxies":
+			return nil, errors.New("proxy endpoint unavailable")
+		}
+		return M{}, nil
+	}
+	a.panelDir = a.root
+	os.WriteFile(filepath.Join(a.root, "network-profile"), []byte("clash\n"), 0600)
+	s := a.clashState()
+	if boolv(s["online"]) || boolv(s["core_online"]) || text(s["verdict"]) != "core_down" {
+		t.Fatalf("partial core API reported as online: %v", s)
+	}
+}
+
+func TestSelectableNodesExcludesProviderMetadata(t *testing.T) {
+	got := selectableNodes(M{}, M{"all": []any{"剩余流量：9409.05 GB", "套餐到期：长期有效", "过滤掉14条线路", "Leaf 01", "DIRECT"}})
+	if len(got) != 1 || text(got[0]) != "Leaf 01" {
+		t.Fatalf("provider metadata leaked into node choices: %v", got)
+	}
+}
+
 func TestSelectProxyRejectsNonSelectorAndPathInjection(t *testing.T) {
 	a := testApp(t)
 	puts := 0
