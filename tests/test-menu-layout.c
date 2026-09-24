@@ -18,13 +18,15 @@ int main(void){
  before=cJSON_PrintUnformatted(r);panel_menu_layout(r);after=cJSON_PrintUnformatted(r);assert(!strcmp(before,after));cJSON_free(before);cJSON_free(after);cJSON_Delete(r);
  /* Clash keeps daily controls first and marks configuration work as "更多 ·".
   * Existing action payloads must survive the reordering untouched. */
- r=cJSON_Parse("{\"sections\":[{\"id\":\"clash\",\"items\":[{\"id\":\"add-rule\",\"type\":\"form\",\"label\":\"添加分流规则\",\"action\":\"clash.rule_add\",\"fields\":[{\"key\":\"pattern\"}]},{\"id\":\"coverage\",\"type\":\"info\",\"label\":\"代理覆盖\"},{\"id\":\"service\",\"type\":\"choice\",\"label\":\"代理开关\",\"action\":\"clash.service\"},{\"id\":\"node\",\"type\":\"choice\",\"label\":\"专线节点\",\"action\":\"clash.select\",\"args\":{\"group\":\"G\"}},{\"id\":\"mode\",\"type\":\"choice\",\"label\":\"分流模式\",\"action\":\"clash.mode\"}]}]}");
+ r=cJSON_Parse("{\"sections\":[{\"id\":\"clash\",\"title\":\"Clash\",\"items\":[{\"id\":\"add-rule\",\"type\":\"form\",\"label\":\"添加分流规则\",\"action\":\"clash.rule_add\",\"fields\":[{\"key\":\"pattern\"}]},{\"id\":\"coverage\",\"type\":\"info\",\"label\":\"代理覆盖\"},{\"id\":\"service\",\"type\":\"choice\",\"label\":\"代理开关\",\"action\":\"clash.service\"},{\"id\":\"node\",\"type\":\"choice\",\"label\":\"专线节点\",\"action\":\"clash.select\",\"args\":{\"group\":\"G\"}},{\"id\":\"mode\",\"type\":\"choice\",\"label\":\"分流模式\",\"action\":\"clash.mode\"}]}]}");
  assert(r);items=cJSON_GetObjectItem(menu_section(r,"clash"),"items");char *rule_before=cJSON_PrintUnformatted(cJSON_GetObjectItem(cJSON_GetArrayItem(items,0),"fields"));
  panel_menu_layout(r);
- /* Daily controls lead; informational coverage sorts after them. */
- const char *clash_ids[]={"service","mode","node"};for(int n=0;n<3;n++)assert(!strcmp(menu_str(cJSON_GetArrayItem(items,n),"id"),clash_ids[n]));
- int more=-1,coverage=-1;for(int n=3;n<5;n++){if(!strcmp(menu_str(cJSON_GetArrayItem(items,n),"id"),"add-rule"))more=n;if(!strcmp(menu_str(cJSON_GetArrayItem(items,n),"id"),"coverage"))coverage=n;}
- assert(more>0&&coverage>0&&more<coverage);assert(strstr(menu_str(cJSON_GetArrayItem(items,more),"label"),"更多 · 添加分流规则"));
+ /* The first screen must answer "how do I get online" and "is it on": switch,
+   * mode, node, then the verdict. Configuration rows fall after the verdict. */
+ const char *clash_ids[]={"service","mode","node","coverage"};for(int n=0;n<4;n++)assert(!strcmp(menu_str(cJSON_GetArrayItem(items,n),"id"),clash_ids[n]));
+ assert(!strcmp(menu_str(menu_section(r,"clash"),"title"),"代理"));
+ int more=-1;for(int n=4;n<5;n++)if(!strcmp(menu_str(cJSON_GetArrayItem(items,n),"id"),"add-rule"))more=n;
+ assert(more==4);assert(strstr(menu_str(cJSON_GetArrayItem(items,more),"label"),"更多 · 添加分流规则"));
  char *rule_after=cJSON_PrintUnformatted(cJSON_GetObjectItem(cJSON_GetArrayItem(items,more),"fields"));assert(!strcmp(rule_before,rule_after));cJSON_free(rule_before);cJSON_free(rule_after);
  assert(!strcmp(menu_str(cJSON_GetArrayItem(items,more),"action"),"clash.rule_add"));
  before=cJSON_PrintUnformatted(r);panel_menu_layout(r);after=cJSON_PrintUnformatted(r);assert(!strcmp(before,after));cJSON_free(before);cJSON_free(after);cJSON_Delete(r);

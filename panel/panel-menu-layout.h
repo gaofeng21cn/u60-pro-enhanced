@@ -21,14 +21,16 @@ static int menu_rank(cJSON *item){
 }
 static int menu_priority(cJSON *item,const char *section){
  if(!strcmp(menu_str(item,"id"),"menu.unavailable"))return 104;
- if(menu_rank(item))return 100+menu_rank(item);
  if(!strcmp(section,"clash")){
-  /* Daily actions stay on the first page; "更多 ·" rows sort to the end so the
-   * proxy switch, mode, node and coverage check are always reachable. */
-  static const char *const daily[]={"service","mode","node","recent","favorite-current","coverage","diagnose","scope"};
-  for(int n=0;n<8;n++)if(!strcmp(menu_str(item,"id"),daily[n]))return n;
+  /* The proxy page is curated: state, switch, mode, quick picks, then the
+   * verdict, so the first screen answers "how do I get online" and "is it
+   * actually on". Everything else falls back to the generic ranking. */
+  static const char *const daily[]={"service","mode","node","favorite","recent","favorite-current","coverage","diagnose","scope"};
+  for(int n=0;n<9;n++)if(!strcmp(menu_str(item,"id"),daily[n]))return n;
+  if(menu_rank(item))return 100+menu_rank(item);
   return 20;
  }
+ if(menu_rank(item))return 100+menu_rank(item);
  if(!strcmp(section,"system")){
   const char *ids[]={"theme","brightness","blank","system.fastboot"};
   for(int n=0;n<4;n++)if(!strcmp(menu_str(item,"id"),ids[n]))return n;
@@ -75,6 +77,8 @@ static void panel_menu_layout(cJSON *root){
    * the scrolling list shows an obvious split instead of one flat wall. */
  cJSON *clash=menu_section(root,"clash");
  if(clash){
+  /* The bottom tab reads "代理"; keep the header consistent on the screen. */
+  cJSON_ReplaceItemInObjectCaseSensitive(clash,"title",cJSON_CreateString("代理"));
   static const char *const advanced[]={"clash.provider","rule-providers","connections","dns","add-rule"};
   cJSON *it;cJSON_ArrayForEach(it,cJSON_GetObjectItemCaseSensitive(clash,"items")){
    const char *id=menu_str(it,"id"),*label=menu_str(it,"label");
