@@ -16,6 +16,16 @@
 #ifndef CC_PROFILE_SCRIPT
 #define CC_PROFILE_SCRIPT "/data/u60-panel/network-profile.sh"
 #endif
+#ifndef CC_PREFS
+#define CC_PREFS CC_ROOT "/panel-prefs.json"
+#endif
+/* Shared device-side preferences. Both the screen control adapter and the
+ * authenticated web controller read and write this file, so every update takes
+ * an exclusive lock and renames atomically. Only node names and latency
+ * numbers are stored; no subscription URL, node URI or credential is copied. */
+#define CC_PREFS_FAVORITES 20
+#define CC_PREFS_RECENTS 5
+#define CC_PREFS_DELAYS 64
 static char cc_secret[128];
 static int cc_load_secret(void)
 {
@@ -93,6 +103,20 @@ static cJSON *cc_get(const char *path) {
  if(!cc_secret[0])cc_load_secret();
  int n=cc_http("GET",path,NULL,buf,1048576);
  cJSON *j=n>0?cJSON_Parse(buf):NULL; free(buf); return j;
+}
+/* Read-only coverage receipt from the network owner. Returns NULL when the
+ * helper cannot answer, which must never be reported as a healthy takeover. */
+static cJSON *cc_verify(void)
+{
+ static cJSON *cached;static long cached_at;long now=(long)time(NULL);
+ /* The screen refreshes state every 10s; the receipt is a shell round trip.
+   * Reuse it briefly so routine snapshots stay cheap, then re-read. */
+ if(cached&&now-cached_at<15)return cJSON_Duplicate(cached,1);
+ cJSON_Delete(cached);cached=NULL;
+ char out[2048];char *av[]={"network-profile.sh","verify",NULL};
+ if(!run_cmd(CC_PROFILE_SCRIPT,av,NULL,out,sizeof(out)))return NULL;
+ cached=cJSON_Parse(out);cached_at=now;
+ return cached?cJSON_Duplicate(cached,1):NULL;
 }
 static double cc_num(const cJSON *j,const char *key) {
  const cJSON *v=jget(j,key);return cJSON_IsNumber(v)?v->valuedouble:0;
@@ -188,6 +212,138 @@ static int cc_save_rules(cJSON *rules) {
 static int cc_safe_token(const char *s,size_t max) {
  if(!s||!*s||strlen(s)>max)return 0;for(const unsigned char*p=(const unsigned char*)s;*p;p++)if(*p<32||*p==','||*p=='#'||*p=='\''||*p=='"'||*p=='\\')return 0;return 1;
 }
+/* Shared device-side preferences. Both the screen adapter and the
+ * authenticated web controller read and write this file, so every update takes
+ * an exclusive lock and renames atomically. Only node names and latency numbers
+ * are stored; no subscription URL, node URI or credential is copied. */
+static cJSON *cc_prefs_lock(int exclusive,int *fd_out)
+{
+	int fd=open(CC_PREFS ".lock",O_CREAT|O_RDWR|O_CLOEXEC|O_NOFOLLOW,0600);
+	cJSON *j=NULL;char *raw=NULL;
+	*fd_out=-1;
+	if(fd<0)return NULL;
+	for(int tries=0;tries<40;tries++){
+		if(flock(fd,exclusive?LOCK_EX:LOCK_SH|LOCK_NB)==0)break;
+		if(!exclusive){close(fd);return NULL;}
+		struct timespec t={0,25000000};nanosleep(&t,NULL);
+	}
+	raw=cc_readfile(CC_PREFS);
+	j=raw?cJSON_Parse(raw):NULL;
+	free(raw);
+	if(!cJSON_IsObject(j)){cJSON_Delete(j);j=cJSON_CreateObject();}
+	cJSON *favorites=jget(j,"favorites"),*recents=jget(j,"recents"),*delays=jget(j,"delays");
+	if(!cJSON_IsArray(favorites)){cJSON_DeleteItemFromObjectCaseSensitive(j,"favorites");cJSON_AddArrayToObject(j,"favorites");}
+	if(!cJSON_IsArray(recents)){cJSON_DeleteItemFromObjectCaseSensitive(j,"recents");cJSON_AddArrayToObject(j,"recents");}
+	if(!cJSON_IsObject(delays)){cJSON_DeleteItemFromObjectCaseSensitive(j,"delays");cJSON_AddObjectToObject(j,"delays");}
+	*fd_out=fd;
+	return j;
+}
+static void cc_prefs_unlock(int fd){if(fd>=0){flock(fd,LOCK_UN);close(fd);}}
+static int cc_prefs_save(cJSON *j)
+{
+	char *text=cJSON_PrintUnformatted(j);int ok=0;
+	if(text){ok=cc_atomic(CC_PREFS,text);memset(text,0,strlen(text));free(text);}
+	return ok;
+}
+static cJSON *cc_prefs(void)
+{
+	int fd=-1;cJSON *j=cc_prefs_lock(0,&fd);
+	if(!j){cc_prefs_unlock(fd);return cJSON_CreateObject();}
+	cc_prefs_unlock(fd);
+	return j;
+}
+static int cc_prefs_toggle_favorite(const char *name)
+{
+	if(!cc_safe_token(name,512))return 0;
+	int fd=-1;cJSON *j=cc_prefs_lock(1,&fd);
+	if(!j){cc_prefs_unlock(fd);return 0;}
+	cJSON *favorites=jget(j,"favorites"),*out=cJSON_CreateArray();
+	int removed=0;cJSON *item;
+	cJSON_ArrayForEach(item,favorites){
+		if(!cJSON_IsString(item))continue;
+		if(!strcmp(item->valuestring,name)){removed=1;continue;}
+		cJSON_AddItemToArray(out,cJSON_CreateString(item->valuestring));
+	}
+	if(!removed){
+		cJSON_Delete(out);out=cJSON_CreateArray();
+		cJSON_AddItemToArray(out,cJSON_CreateString(name));
+		cJSON_ArrayForEach(item,favorites){
+			if(!cJSON_IsString(item)||!strcmp(item->valuestring,name))continue;
+			if(cJSON_GetArraySize(out)>=CC_PREFS_FAVORITES)break;
+			cJSON_AddItemToArray(out,cJSON_CreateString(item->valuestring));
+		}
+	}
+	cJSON_ReplaceItemInObjectCaseSensitive(j,"favorites",out);
+	int ok=cc_prefs_save(j);
+	cJSON_Delete(j);cc_prefs_unlock(fd);
+	return ok?1:0;
+}
+static void cc_prefs_promote_name(const char *key,const char *name,int cap)
+{
+	if(!cc_safe_token(name,512))return;
+	int fd=-1;cJSON *j=cc_prefs_lock(1,&fd);
+	if(!j){cc_prefs_unlock(fd);return;}
+	cJSON *list=jget(j,key),*out=cJSON_CreateArray();
+	cJSON_AddItemToArray(out,cJSON_CreateString(name));
+	cJSON *item;
+	cJSON_ArrayForEach(item,list){
+		if(!cJSON_IsString(item)||!item->valuestring[0]||!strcmp(item->valuestring,name))continue;
+		if(cJSON_GetArraySize(out)>=cap)break;
+		cJSON_AddItemToArray(out,cJSON_CreateString(item->valuestring));
+	}
+	cJSON_ReplaceItemInObjectCaseSensitive(j,key,out);
+	cc_prefs_save(j);cJSON_Delete(j);cc_prefs_unlock(fd);
+}
+static void cc_prefs_record_delay(const char *name,int ms)
+{
+	if(ms<=0||!cc_safe_token(name,512))return;
+	int fd=-1;cJSON *j=cc_prefs_lock(1,&fd);
+	if(!j){cc_prefs_unlock(fd);return;}
+	cJSON *delays=jget(j,"delays"),*entry=cJSON_CreateObject();
+	cJSON_AddNumberToObject(entry,"ms",ms);
+	cJSON_AddNumberToObject(entry,"at",(double)time(NULL));
+	/* cJSON_ReplaceItemInObjectCaseSensitive only replaces an existing child; it
+	 * returns false when the parent object is still empty, which would silently
+	 * drop every first measurement. Delete-then-add covers both cases. */
+	cJSON_DeleteItemFromObjectCaseSensitive(delays,name);
+	cJSON_AddItemToObject(delays,name,entry);
+	while(cJSON_GetArraySize(delays)>CC_PREFS_DELAYS){
+		cJSON *first=delays->child;if(!first)break;
+		cJSON_DeleteItemFromObjectCaseSensitive(delays,first->string);
+	}
+	cc_prefs_save(j);cJSON_Delete(j);cc_prefs_unlock(fd);
+}
+static int cc_prefs_delay(const cJSON *prefs,const char *name)
+{
+	cJSON *entry=jget(jget(prefs,"delays"),name);
+	return cJSON_IsObject(entry)?(int)cc_num(entry,"ms"):0;
+}
+static int cc_prefs_favorite(const cJSON *prefs,const char *name)
+{
+	cJSON *item;cJSON_ArrayForEach(item,jget(prefs,"favorites"))if(cJSON_IsString(item)&&!strcmp(item->valuestring,name))return 1;
+	return 0;
+}
+/* Bounded, secret-free operation history. Only the action name, outcome and
+ * time are kept; no URL, node URI, credential or request body is recorded. */
+#define CC_PREFS_HISTORY 20
+static void cc_prefs_record(const char *action,int ok,const char *message)
+{
+	if(!action||!*action||strlen(action)>80)return;
+	int fd=-1;cJSON *j=cc_prefs_lock(1,&fd);
+	if(!j){cc_prefs_unlock(fd);return;}
+	cJSON *history=jget(j,"history");
+	if(!cJSON_IsArray(history)){cJSON_DeleteItemFromObjectCaseSensitive(j,"history");history=cJSON_AddArrayToObject(j,"history");}
+	cJSON *entry=cJSON_CreateObject();
+	cJSON_AddStringToObject(entry,"action",action);
+	cJSON_AddBoolToObject(entry,"ok",ok);
+	cJSON_AddNumberToObject(entry,"at",(double)time(NULL));
+	if(message&&*message){char safe[120];size_t n=strlen(message)<sizeof(safe)-1?strlen(message):sizeof(safe)-1;memcpy(safe,message,n);safe[n]=0;
+		for(char*p=safe;*p;p++)if(*p=='\n'||*p=='\r'||*p=='\t')*p=' ';
+		cJSON_AddStringToObject(entry,"message",safe);}
+	cJSON_InsertItemInArray(history,0,entry);
+	while(cJSON_GetArraySize(history)>CC_PREFS_HISTORY)cJSON_DeleteItemFromArray(history,cJSON_GetArraySize(history)-1);
+	cc_prefs_save(j);cJSON_Delete(j);cc_prefs_unlock(fd);
+}
 #include "panel-clash-quota.h"
 /* Provider leaves can be absent from the top-level /proxies object. */
 static const cJSON *cc_provider_leaf(const cJSON *providers,const char *name) {
@@ -212,6 +368,14 @@ static const char *cc_resolve_node(const cJSON *proxies,const cJSON *providers,c
   return name;
  }
  return NULL;
+}
+/* Global mode is only meaningful when GLOBAL resolves to something other than a
+ * direct or reject policy. Provider-only leaves are valid targets, so this uses
+ * the same resolver as the active-node display. */
+static int cc_global_ready(const cJSON *proxies,const cJSON *providers)
+{
+ const char *leaf=cc_resolve_node(proxies,providers,"GLOBAL");
+ return leaf&&strcmp(leaf,"DIRECT")&&strcmp(leaf,"REJECT")&&strcmp(leaf,"REJECT-DROP");
 }
 static const char *cc_active_node(const cJSON *cfg,const cJSON *proxies,const cJSON *providers,const cJSON *rules) {
  const char *mode=jstr(cfg,"mode");
@@ -247,21 +411,99 @@ static void control_clash_sections(cJSON *root) {
  cJSON *live_rules=!strcmp(jstr(cfg,"mode"),"rule")?cc_get("/rules"):NULL;const char *node=cc_active_node(cfg,proxies,providers,live_rules);
  /* Explicit unknown prevents the UI from reviving a legacy cached node. */
  cJSON_AddStringToObject(state,"node",node?node:"未知");
+ /* One verdict for both UIs: "configured" and "core running" are not the same
+   * claim as "traffic is really redirected". The receipt is read-only. */
+ cJSON *verify=cc_verify(),*red=jget(verify,"redirect");
+ const char *profile=jstr(data,"network_profile");
+ int verified=cJSON_IsObject(verify),tcp=verified&&cJSON_IsTrue(jget(red,"prerouting_tcp")),dns=verified&&cJSON_IsTrue(jget(red,"dns"));
+ cJSON_AddBoolToObject(state,"coverage_checked",verified);
+ cJSON_AddBoolToObject(state,"coverage_tcp",tcp);
+ cJSON_AddBoolToObject(state,"coverage_dns",dns);
+ const char *verdict="direct",*verdict_text="未启用代理，当前直连";
+ if(!strcmp(profile,"clash")){
+  if(!online){verdict="core_down";verdict_text="代理核心未运行，当前无法代理";}
+  else if(!verified){verdict="unverified";verdict_text="已配置代理，转发规则未能核验";}
+ else if(tcp&&dns){verdict="takeover";verdict_text=!strcmp(jstr(cfg,"mode"),"global")?"全局代理已接管 IPv4 TCP 与 DNS":"规则代理已接管 IPv4 TCP 与 DNS";}
+  else {verdict="partial";verdict_text="转发不完整：TCP 或 DNS 未生效";}
+ }else if(!strcmp(profile,"tailscale")){verdict="tailscale";verdict_text="当前为 Tailscale 出口，未启用代理转发";}
+ else if(!strcmp(profile,"error")){verdict="error";verdict_text="异常状态：转发可能未阻断，请检查出口";}
+ cJSON_AddStringToObject(state,"verdict",verdict);
+ cJSON_AddStringToObject(state,"verdict_text",verdict_text);
  int active=online&&!strcmp(jstr(data,"network_profile"),"clash");
  cJSON *i=cc_item(items,"service","代理开关",active?"开启":online?"未接管上网":"关闭","choice","clash.service"),*choices=cJSON_AddArrayToObject(i,"choices");
  cc_choice(choices,"开启代理","operation","start");cc_choice(choices,"关闭代理 · 直连","operation","stop");cJSON_AddBoolToObject(i,"confirm",1);
  i=cc_item(items,"mode","分流模式",!cfg?"服务未启动":!strcmp(jstr(cfg,"mode"),"rule")?"规则分流":!strcmp(jstr(cfg,"mode"),"global")?"全局代理":"旧直连模式 · 请选择","choice","clash.mode");choices=cJSON_AddArrayToObject(i,"choices");
  cc_choice(choices,"规则分流","mode","rule");cc_choice(choices,"全局代理","mode","global");cJSON_ReplaceItemInObject(i,"enabled",cJSON_CreateBool(online));
+ /* Point out the global-mode trap before the user selects it. */
+ if(cfg&&!cc_global_ready(proxies,providers))cJSON_AddStringToObject(i,"reason","全局代理需要先把 GLOBAL 指向可用节点；也可先连接网络测试确认出口。");
+ /* When GLOBAL is still DIRECT, offer the repair directly so global mode is
+   * reachable without hand-editing configuration. */
+ if(cfg&&!cc_global_ready(proxies,providers)){
+  cJSON *gt=jget(proxies,"GLOBAL");
+  if(!strcmp(jstr(gt,"type"),"Selector")){
+   i=cc_item(items,"global-target","全局模式入口",jstr(gt,"now"),"choice","clash.global_target");
+   choices=cJSON_AddArrayToObject(i,"choices");
+   cJSON *gm;cJSON_ArrayForEach(gm,jget(gt,"all"))if(cJSON_IsString(gm)&&!cc_builtin(gm->valuestring))cc_choice(choices,gm->valuestring,"target",gm->valuestring);
+   cJSON_ReplaceItemInObject(i,"enabled",cJSON_CreateBool(cJSON_GetArraySize(choices)>0));
+  }
+ }
  const char *group=cc_node_group(cfg,proxies,live_rules);cJSON *g=jget(proxies,group),*p;
  i=cc_item(items,"node","专线节点",node?node:"服务未启动或策略未知","choice","clash.select");cc_arg(i,"group",group);choices=cJSON_AddArrayToObject(i,"choices");
  cJSON *n;cJSON_ArrayForEach(n,jget(g,"all"))if(cJSON_IsString(n)&&!cc_builtin(n->valuestring))cc_choice(choices,n->valuestring,"name",n->valuestring);
  cJSON_ReplaceItemInObject(i,"enabled",cJSON_CreateBool(!strcmp(jstr(g,"type"),"Selector")&&cJSON_GetArraySize(choices)>0));
+ /* Favorites and recents live in the shared device preference file so the
+   * screen, the web page and the controller all agree on known-good nodes. */
+ cJSON *prefs=cc_prefs();
+ cJSON_AddItemToObject(state,"favorites",cJSON_Duplicate(jget(prefs,"favorites"),1));
+ cJSON_AddItemToObject(state,"recents",cJSON_Duplicate(jget(prefs,"recents"),1));
+ /* Mark whether the current node is already a favorite so the row can offer a
+   * clear add/remove action without a second round trip. */
+ cJSON_AddBoolToObject(state,"node_favorite",node&&cc_prefs_favorite(prefs,node));
+ /* Favorites are a fast path: pick from up to 20 device-local names without
+   * scrolling the full node list. Names absent from the live group are skipped
+   * so a removed node never becomes an unselectable row. */
+ if(cJSON_GetArraySize(jget(prefs,"recents"))){
+  i=cc_item(items,"recent","最近使用","快速回到上一个节点","choice","clash.select");cc_arg(i,"group",group);choices=cJSON_AddArrayToObject(i,"choices");
+  cJSON *recent;cJSON_ArrayForEach(recent,jget(prefs,"recents")){
+   if(!cJSON_IsString(recent))continue;
+   int live=0;cJSON_ArrayForEach(n,jget(g,"all"))if(cJSON_IsString(n)&&!strcmp(n->valuestring,recent->valuestring))live=1;
+   if(!live)continue;
+   int ms=cc_prefs_delay(prefs,recent->valuestring);char label[640];
+   if(ms>0)snprintf(label,sizeof(label),"%s · %d ms",recent->valuestring,ms);
+   else snprintf(label,sizeof(label),"%s",recent->valuestring);
+   cc_choice(choices,label,"name",recent->valuestring);
+  }
+  cJSON_ReplaceItemInObject(i,"enabled",cJSON_CreateBool(cJSON_GetArraySize(choices)>0));
+ }
+ if(cJSON_GetArraySize(jget(prefs,"favorites"))){
+  i=cc_item(items,"favorite","收藏节点","轻点快速切换","choice","clash.select");cc_arg(i,"group",group);choices=cJSON_AddArrayToObject(i,"choices");
+  cJSON *fav;cJSON_ArrayForEach(fav,jget(prefs,"favorites")){
+   if(!cJSON_IsString(fav))continue;
+   int live=0;cJSON_ArrayForEach(n,jget(g,"all"))if(cJSON_IsString(n)&&!strcmp(n->valuestring,fav->valuestring))live=1;
+   if(!live)continue;
+   int ms=cc_prefs_delay(prefs,fav->valuestring);char label[640];
+   if(ms>0)snprintf(label,sizeof(label),"%s · %d ms",fav->valuestring,ms);
+   else snprintf(label,sizeof(label),"%s",fav->valuestring);
+   cc_choice(choices,label,"name",fav->valuestring);
+  }
+  cJSON_ReplaceItemInObject(i,"enabled",cJSON_CreateBool(cJSON_GetArraySize(choices)>0));
+ }
+ cJSON_Delete(prefs);
+ if(node&&*node&&strcmp(node,"未知")){
+  i=cc_item(items,"favorite-current",cJSON_IsTrue(jget(state,"node_favorite"))?"取消收藏当前节点":"收藏当前节点","设备本机保存，两端共享","action","clash.favorite");
+  cc_arg(i,"name",node);cJSON_AddBoolToObject(i,"confirm",0);
+ }
  cJSON_Delete(live_rules);
  /* Serving state and interception state are separate facts on this screen. */
- cc_item(items,"coverage","代理覆盖",active?"已接管 IPv4 TCP 与 DNS":"未接管上网，当前直连","info",NULL);
+ cc_item(items,"coverage","代理覆盖",verdict_text,"info",NULL);
  i=cc_item(items,"diagnose","代理覆盖自检","核对转发规则与未代理范围","action","clash.diagnose");cJSON_AddBoolToObject(i,"confirm",0);
  cc_item(items,"scope","代理范围","UDP 与 IPv6 不代理；UDP 443 被拒绝","info",NULL);
- i=cc_item(items,"delay","节点测速","选择专线测速","choice","clash.delay");choices=cJSON_AddArrayToObject(i,"choices");
+ /* Operation history is a report, not a control: it never re-runs anything. */
+ if(cJSON_GetArraySize(jget(prefs,"history"))){
+  char summary[80];snprintf(summary,sizeof(summary),"%d 条 · 查看结果与时间",cJSON_GetArraySize(jget(prefs,"history")));
+  i=cc_item(items,"clash.history","最近操作",summary,"action","clash.history");cJSON_AddBoolToObject(i,"confirm",0);
+ }
+ i=cc_item(items,"delay","连通延迟","选择节点查看延迟","choice","clash.delay");choices=cJSON_AddArrayToObject(i,"choices");
  /* Use the same choices as the node selector, never its parent group. */
  cJSON_ArrayForEach(n,jget(g,"all"))if(cJSON_IsString(n)&&!cc_builtin(n->valuestring)){
   int exists=0;cJSON *v;cJSON_ArrayForEach(v,choices)if(!strcmp(jstr(jget(v,"args"),"name"),n->valuestring))exists=1;
@@ -288,12 +530,17 @@ static void control_clash_sections(cJSON *root) {
  }
  cJSON_Delete(rules);cJSON_Delete(con);cJSON_Delete(rp);cJSON_Delete(providers);cJSON_Delete(all);cJSON_Delete(cfg);
 }
-static cJSON *control_clash_action(const char *action,const cJSON *args) {
+static cJSON *cc_action_inner(const char *action,const cJSON *args) {
  if(strncmp(action,"clash.",6))return NULL;
  if(!cc_secret[0])cc_load_secret();
  int ok=0;char path[2400],enc[1800];cJSON *j=NULL,*result=NULL;
  if(!strcmp(action,"clash.mode")){
   const char *mode=jstr(args,"mode");if(strcmp(mode,"rule")&&strcmp(mode,"global")&&strcmp(mode,"direct"))return reply(0,"无效的代理模式");
+  /* Global mode must not silently land on DIRECT: the settings page and the
+   * screen both refuse to claim "global proxy" while GLOBAL still resolves to
+   * a direct policy. The user picks a node first, then re-applies. */
+  if(!strcmp(mode,"global")){cJSON *all=cc_get("/proxies"),*pv=cc_get("/providers/proxies");int ready=cc_global_ready(jget(all,"proxies"),pv);cJSON_Delete(pv);cJSON_Delete(all);
+   if(!ready)return reply(0,"全局代理需要先选择可用节点（当前 GLOBAL 指向直连）");}
   j=cc_get("/configs");char previous[24];snprintf(previous,sizeof(previous),"%s",jstr(j,"mode"));cJSON_Delete(j);if(strcmp(previous,"rule")&&strcmp(previous,"global")&&strcmp(previous,"direct"))return reply(0,"无法读取当前模式，未修改");
   j=cJSON_CreateObject();cJSON_AddStringToObject(j,"mode",mode);ok=cc_write("PATCH","/configs",j);cJSON_Delete(j);j=cc_get("/configs");ok=ok&&!strcmp(jstr(j,"mode"),mode);cJSON_Delete(j);
   if(ok&&!cc_persist_mode(mode)){j=cJSON_CreateObject();cJSON_AddStringToObject(j,"mode",previous);int restored=cc_write("PATCH","/configs",j);cJSON_Delete(j);j=cc_get("/configs");restored=restored&&!strcmp(jstr(j,"mode"),previous);cJSON_Delete(j);return reply(0,restored?"模式保存失败，已恢复原运行模式":"模式保存失败，运行模式回退未确认，请刷新核对");}
@@ -301,9 +548,60 @@ static cJSON *control_clash_action(const char *action,const cJSON *args) {
   const char *group=jstr(args,"group"),*name=jstr(args,"name");if(!*group||strlen(group)>512||strlen(name)>512)return reply(0,"节点名称无效");
   cc_urlenc(group,enc,sizeof(enc));snprintf(path,sizeof(path),"/proxies/%s",enc);j=cc_get(path);cJSON *n;int found=0;cJSON_ArrayForEach(n,jget(j,"all"))if(cJSON_IsString(n)&&!strcmp(n->valuestring,name))found=1;
   int selector=!strcmp(jstr(j,"type"),"Selector");cJSON_Delete(j);if(!found||!selector)return reply(0,"节点已变化，请刷新后重试");
-  j=cJSON_CreateObject();cJSON_AddStringToObject(j,"name",name);ok=cc_write("PUT",path,j);cJSON_Delete(j);j=cc_get(path);ok=ok&&!strcmp(jstr(j,"now"),name);cJSON_Delete(j);
+ j=cJSON_CreateObject();cJSON_AddStringToObject(j,"name",name);ok=cc_write("PUT",path,j);cJSON_Delete(j);j=cc_get(path);ok=ok&&!strcmp(jstr(j,"now"),name);cJSON_Delete(j);
+  if(ok)cc_prefs_promote_name("recents",name,CC_PREFS_RECENTS);
+ }else if(!strcmp(action,"clash.global_target")){
+  /* Point GLOBAL at a real policy so global mode can actually proxy. Only the
+   * runtime selection changes here; the on-disk config is untouched. */
+  const char *target=jstr(args,"target");if(!*target||strlen(target)>512)return reply(0,"请选择有效的策略组");
+  j=cc_get("/proxies/GLOBAL");int is_selector=!strcmp(jstr(j,"type"),"Selector");int found=0;cJSON *m;
+  cJSON_ArrayForEach(m,jget(j,"all"))if(cJSON_IsString(m)&&!strcmp(m->valuestring,target))found=1;
+  cJSON_Delete(j);if(!is_selector)return reply(0,"GLOBAL 不是可手动切换的策略组，未修改");
+  if(!found)return reply(0,"策略已变化，请刷新后重试");
+  if(!strcmp(target,"DIRECT")||!strcmp(target,"REJECT")||!strcmp(target,"REJECT-DROP"))return reply(0,"该目标仍是直连，无法用于全局代理");
+  j=cJSON_CreateObject();cJSON_AddStringToObject(j,"name",target);ok=cc_write("PUT","/proxies/GLOBAL",j);cJSON_Delete(j);
+  j=cc_get("/proxies/GLOBAL");ok=ok&&!strcmp(jstr(j,"now"),target);cJSON_Delete(j);
+  if(ok)return reply(1,"GLOBAL 已指向所选策略并回读确认；现在可以切换到全局代理");
  }else if(!strcmp(action,"clash.delay")){
-  const char *name=jstr(args,"name");if(!*name||strlen(name)>512)return reply(0,"请选择节点");cc_urlenc(name,enc,sizeof(enc));snprintf(path,sizeof(path),"/proxies/%s/delay?timeout=5000&url=https%%3A%%2F%%2Fwww.gstatic.com%%2Fgenerate_204",enc);char buf[512];int n=cc_http_to("GET",path,NULL,buf,sizeof(buf),7);j=n>0?cJSON_Parse(buf):NULL;int ms=(int)cc_num(j,"delay");cJSON_Delete(j);char msg[80];snprintf(msg,sizeof(msg),ms>0?"延迟 %d ms":"测速失败或超时",ms);return reply(ms>0,msg);
+  const char *name=jstr(args,"name");if(!*name||strlen(name)>512)return reply(0,"请选择节点");
+  cc_urlenc(name,enc,sizeof(enc));snprintf(path,sizeof(path),"/proxies/%s/delay?timeout=5000&url=https%%3A%%2F%%2Fwww.gstatic.com%%2Fgenerate_204",enc);
+  char buf[512];int n=cc_http_to("GET",path,NULL,buf,sizeof(buf),7);j=n>0?cJSON_Parse(buf):NULL;int ms=(int)cc_num(j,"delay");cJSON_Delete(j);
+  if(ms<=0){
+   /* Subscription nodes live in the provider, not in the top-level proxy map,
+    * so the per-proxy delay endpoint 404s for them. Those nodes already carry
+    * the provider health check's measured history, which is the same kind of
+    * connectivity latency, so report that instead of a false failure. */
+   cJSON *pv=cc_get("/providers/proxies");const cJSON *leaf=cc_provider_leaf(pv,name);
+   if(leaf){
+    const cJSON *hist=jget(leaf,"history");int size=cJSON_GetArraySize(hist);
+    for(int i=size-1;i>=0;i--){const cJSON *entry=cJSON_GetArrayItem(hist,i);int v=(int)cc_num(entry,"delay");if(v>0){ms=v;break;}}
+    if(ms<=0&&cJSON_IsTrue(jget(leaf,"alive")))ms=-1;
+   }
+   cJSON_Delete(pv);
+   if(ms<0)return reply(0,"该节点尚无检测记录；核心会在下次健康检查后给出连通延迟");
+  }
+  if(ms>0)cc_prefs_record_delay(name,ms);
+  char msg[96];snprintf(msg,sizeof(msg),ms>0?"连通延迟 %d ms":"测速失败或超时",ms);return reply(ms>0,msg);
+ }else if(!strcmp(action,"clash.favorite")){
+  const char *name=jstr(args,"name");if(!*name||strlen(name)>512)return reply(0,"请选择节点");
+  if(!cc_prefs_toggle_favorite(name))return reply(0,"节点偏好保存失败，请重试");
+  cJSON *prefs=cc_prefs();int on=cc_prefs_favorite(prefs,name);cJSON_Delete(prefs);
+  return reply(1,on?"已加入收藏":"已取消收藏");
+ }else if(!strcmp(action,"clash.history")){
+  /* Read-only history report. Never re-runs anything and never prints request bodies. */
+  int fd=-1;cJSON *prefs=cc_prefs_lock(0,&fd),*history=jget(prefs,"history");
+  cJSON *r=reply(1,"最近操作"),*rep=cJSON_AddObjectToObject(r,"report"),*lines=cJSON_AddArrayToObject(rep,"lines");
+  cJSON_AddStringToObject(rep,"title","最近操作");
+  if(!cJSON_GetArraySize(history))cJSON_AddItemToArray(lines,cJSON_CreateString("还没有记录。"));
+  cJSON *h;int shown=0;
+  cJSON_ArrayForEach(h,history){
+   if(shown++>=10)break;
+   time_t at=(time_t)cc_num(h,"at");struct tm tm;char when[32]="时间未知";
+   if(at>0&&localtime_r(&at,&tm))strftime(when,sizeof(when),"%m-%d %H:%M",&tm);
+   char line[260];snprintf(line,sizeof(line),"%s · %s：%s",when,cJSON_IsTrue(jget(h,"ok"))?"成功":"未完成",jstr(h,"message"));
+   cJSON_AddItemToArray(lines,cJSON_CreateString(line));
+  }
+  cc_prefs_unlock(fd);cJSON_Delete(prefs);return r;
  }else if(!strcmp(action,"clash.diagnose")){
   char out[2048],msg[420];char *av[]={"network-profile.sh","verify",NULL};int ran=run_cmd(CC_PROFILE_SCRIPT,av,NULL,out,sizeof(out));
   cJSON *v=ran?cJSON_Parse(out):NULL;
@@ -343,4 +641,12 @@ static cJSON *control_clash_action(const char *action,const cJSON *args) {
   ok=cc_save_rules(rules);cJSON_Delete(rules);
  }else return reply(0,"暂不支持该代理操作");
  result=reply(ok,ok?"已应用并检查":"操作未完成，请检查服务状态");return result;
+}
+/* Every Clash action passes through here so the bounded operation history sees
+ * one outcome per request. Messages are recorded, request bodies are not. */
+static cJSON *control_clash_action(const char *action,const cJSON *args)
+{
+ cJSON *r=cc_action_inner(action,args);
+ if(r)cc_prefs_record(action,cJSON_IsTrue(jget(r,"ok")),jstr(r,"message"));
+ return r;
 }

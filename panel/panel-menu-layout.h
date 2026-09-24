@@ -1,5 +1,8 @@
 #ifndef PANEL_MENU_LAYOUT_H
 #define PANEL_MENU_LAYOUT_H
+/* Screen-only projection of the Clash menu: keep daily controls on the first
+ * page and push configuration work into an explicit "更多" entry. Action
+ * payloads are never rebuilt, only reordered or moved between sections. */
 /* Screen presentation only. Keep action payloads and backend state intact. */
 static const char *menu_str(cJSON *o,const char *key){
  cJSON *v=cJSON_GetObjectItemCaseSensitive(o,key);return cJSON_IsString(v)?v->valuestring:"";
@@ -19,6 +22,13 @@ static int menu_rank(cJSON *item){
 static int menu_priority(cJSON *item,const char *section){
  if(!strcmp(menu_str(item,"id"),"menu.unavailable"))return 104;
  if(menu_rank(item))return 100+menu_rank(item);
+ if(!strcmp(section,"clash")){
+  /* Daily actions stay on the first page; "更多 ·" rows sort to the end so the
+   * proxy switch, mode, node and coverage check are always reachable. */
+  static const char *const daily[]={"service","mode","node","recent","favorite-current","coverage","diagnose","scope"};
+  for(int n=0;n<8;n++)if(!strcmp(menu_str(item,"id"),daily[n]))return n;
+  return 20;
+ }
  if(!strcmp(section,"system")){
   const char *ids[]={"theme","brightness","blank","system.fastboot"};
   for(int n=0;n<4;n++)if(!strcmp(menu_str(item,"id"),ids[n]))return n;
@@ -61,6 +71,19 @@ static void menu_compact(cJSON *section){
 }
 static void panel_menu_layout(cJSON *root){
  cJSON *sys=menu_section(root,"system"),*battery=menu_section(root,"battery");
+ /* Clash keeps daily controls first; configuration-heavy entries are marked so
+   * the scrolling list shows an obvious split instead of one flat wall. */
+ cJSON *clash=menu_section(root,"clash");
+ if(clash){
+  static const char *const advanced[]={"clash.provider","rule-providers","connections","dns","add-rule"};
+  cJSON *it;cJSON_ArrayForEach(it,cJSON_GetObjectItemCaseSensitive(clash,"items")){
+   const char *id=menu_str(it,"id"),*label=menu_str(it,"label");
+   if(!*label||!strncmp(label,"更多 · ",9))continue;
+   int move=!strncmp(id,"local-rule-",11);
+   for(size_t n=0;n<sizeof(advanced)/sizeof(advanced[0])&&!move;n++)if(!strcmp(id,advanced[n]))move=1;
+   if(move){char next[96];snprintf(next,sizeof(next),"更多 · %s",label);cJSON_ReplaceItemInObjectCaseSensitive(it,"label",cJSON_CreateString(next));}
+  }
+ }
  if(battery){
   cJSON_ReplaceItemInObjectCaseSensitive(battery,"title",cJSON_CreateString("电池与省电"));
   cJSON *src=cJSON_GetObjectItemCaseSensitive(sys,"items"),*dst=cJSON_GetObjectItemCaseSensitive(battery,"items"),*it;

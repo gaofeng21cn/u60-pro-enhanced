@@ -301,17 +301,198 @@ func TestClashStateReportsProfileTakeover(t *testing.T) {
 	a := testApp(t)
 	dir := t.TempDir()
 	a.panelDir = dir
-	if s := a.clashState(); text(s["profile"]) != "direct" || boolv(s["takeover"]) {
+	// Minimal live core so "core running" is a real fact in this test.
+	a.testAPI = func(method, path string, data any) (M, error) {
+		switch path {
+		case "/configs":
+			return M{"mode": "rule"}, nil
+		case "/proxies":
+			return M{"proxies": M{"Main": M{"type": "Selector", "all": []any{"leaf"}, "now": "leaf"}, "leaf": M{"type": "Vless"}}}, nil
+		case "/rules":
+			return M{"rules": []any{M{"type": "Match", "proxy": "Main"}}}, nil
+		case "/providers/proxies":
+			return M{"providers": M{}}, nil
+		}
+		return M{}, nil
+	}
+	if s := a.clashState(); text(s["profile"]) != "direct" || boolv(s["takeover"]) || text(s["verdict"]) != "direct" {
 		t.Fatalf("default profile = %v", s)
 	}
 	os.WriteFile(filepath.Join(dir, "network-profile"), []byte("clash\n"), 0600)
-	if s := a.clashState(); !boolv(s["takeover"]) || text(s["profile"]) != "clash" {
+	// A stored "clash" profile without a readable forwarding receipt must not
+	// claim takeover; the verdict distinguishes configured from effective.
+	if s := a.clashState(); !boolv(s["takeover"]) || text(s["profile"]) != "clash" || text(s["verdict"]) != "unverified" {
 		t.Fatalf("takeover not reported: %v", s)
+	}
+	// With the network owner confirming TCP and DNS redirect, the verdict is a
+	// real takeover.
+	script := filepath.Join(dir, "network-profile.sh")
+	os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' '{\"ok\":true,\"profile\":\"clash\",\"redirect\":{\"prerouting_tcp\":true,\"dns\":true,\"udp443_reject\":true,\"guard\":false},\"ipv6_default_route\":true}'\n"), 0700)
+	if s := a.clashState(); text(s["verdict"]) != "takeover" || !boolv(s["coverage_tcp"]) || !boolv(s["coverage_dns"]) || !boolv(s["ipv6_default_route"]) {
+		t.Fatalf("verified verdict missing: %v", s)
+	}
+	// Partial rules must read as partial, never as a healthy takeover.
+	os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' '{\"ok\":true,\"profile\":\"clash\",\"redirect\":{\"prerouting_tcp\":true,\"dns\":false},\"ipv6_default_route\":false}'\n"), 0700)
+	if s := a.clashState(); text(s["verdict"]) != "partial" || boolv(s["coverage_dns"]) {
+		t.Fatalf("partial coverage must not claim takeover: %v", s)
 	}
 	os.WriteFile(filepath.Join(dir, "network-profile"), []byte("nonsense\n"), 0600)
 	if s := a.clashState(); boolv(s["takeover"]) || text(s["profile"]) != "direct" {
 		t.Fatalf("unknown profile must not claim takeover: %v", s["profile"])
 	}
+}
+
+func TestCoverageVerdictNamesTheActiveMode(t *testing.T) {
+	if _, s := coverageVerdict("clash", "rule", true, true, true, true, false); !strings.Contains(s, "规则代理") {
+		t.Fatalf("rule verdict = %q", s)
+	}
+	if v, s := coverageVerdict("clash", "global", true, true, true, true, false); v != "takeover" || !strings.Contains(s, "全局代理") {
+		t.Fatalf("global verdict = %q %q", v, s)
+	}
+	if v, _ := coverageVerdict("clash", "rule", true, true, false, true, false); v != "partial" {
+		t.Fatalf("partial verdict = %q", v)
+	}
+	if v, _ := coverageVerdict("clash", "rule", true, true, true, false, false); v != "unverified" {
+		t.Fatalf("unverified verdict = %q", v)
+	}
+	if v, _ := coverageVerdict("clash", "rule", false, true, true, true, false); v != "core_down" {
+		t.Fatalf("core_down verdict = %q", v)
+	}
+	if v, _ := coverageVerdict("error", "rule", true, false, false, true, true); v != "error_guarded" {
+		t.Fatalf("guarded error verdict = %q", v)
+	}
+	if v, _ := coverageVerdict("direct", "rule", true, false, false, false, false); v != "direct" {
+		t.Fatalf("direct verdict = %q", v)
+	}
+}
+
+func TestSetModeRefusesGlobalWhileGlobalIsDirect(t *testing.T) {
+	a := testApp(t)
+	calls := []string{}
+	a.testAPI = func(method, path string, d any) (M, error) {
+		calls = append(calls, method+" "+path)
+		switch path {
+		case "/proxies":
+			return M{"proxies": M{"GLOBAL": M{"type": "Selector", "all": []any{"DIRECT", "Main"}, "now": "DIRECT"}, "Main": M{"type": "Selector", "all": []any{"leaf"}, "now": "leaf"}}}, nil
+		case "/configs":
+			return M{"mode": "rule"}, nil
+		}
+		return M{}, nil
+	}
+	r := a.setMode(M{"mode": "global"})
+	if boolv(r["ok"]) || !strings.Contains(text(r["message"]), "全局代理需要先选择可用节点") {
+		t.Fatalf("global mode accepted while GLOBAL=DIRECT: %v", r)
+	}
+	for _, c := range calls {
+		if strings.HasPrefix(c, "PATCH") {
+			t.Fatalf("mode change wrote config: %v", calls)
+		}
+	}
+}
+
+func TestSetModePersistsAndReadsBack(t *testing.T) {
+	a := testApp(t)
+	mode := "rule"
+	a.testAPI = func(method, path string, d any) (M, error) {
+		switch path {
+		case "/proxies":
+			return M{"proxies": M{"GLOBAL": M{"type": "Selector", "all": []any{"DIRECT", "Main"}, "now": "Main"}, "Main": M{"type": "Selector", "all": []any{"leaf"}, "now": "leaf"}}}, nil
+		case "/configs":
+			if method == "PATCH" {
+				mode = text(obj(d)["mode"])
+			}
+			return M{"mode": mode}, nil
+		}
+		return M{}, nil
+	}
+	if r := a.setMode(M{"mode": "global"}); !boolv(r["ok"]) {
+		t.Fatal(r)
+	}
+	if mode != "global" {
+		t.Fatalf("runtime mode = %q", mode)
+	}
+	b, e := os.ReadFile(filepath.Join(a.root, "mode"))
+	if e != nil || strings.TrimSpace(string(b)) != "global" {
+		t.Fatalf("persisted mode = %q (%v)", b, e)
+	}
+}
+
+func TestRecordRecentKeepsNewestUniqueNames(t *testing.T) {
+	a := testApp(t)
+	for _, name := range []string{"A", "B", "A", "C", "D", "E", "F"} {
+		a.recordRecent(name)
+	}
+	recents := arr(a.panelPrefs()["recents"])
+	got := []string{}
+	for _, v := range recents {
+		got = append(got, text(v))
+	}
+	want := []string{"F", "E", "D", "C", "A"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("recents = %v, want %v", got, want)
+	}
+}
+
+func TestAutoSelectEnablesBoundedUrlTestGroup(t *testing.T) {
+	a := testApp(t)
+	a.testAPI = func(method, path string, d any) (M, error) {
+		if path == "/proxies" {
+			return M{"proxies": M{}}, nil
+		}
+		return M{}, nil
+	}
+	r := a.setAutoSelect(M{"group": "自动选择", "provider": "old", "enabled": true})
+	if !boolv(r["ok"]) {
+		t.Fatal(r)
+	}
+	_, root, e := a.config()
+	if e != nil {
+		t.Fatal(e)
+	}
+	groups := named(root, "proxy-groups")
+	var auto *yaml.Node
+	for _, g := range groups.Content {
+		if nstr(g, "name") == "自动选择" {
+			auto = g
+		}
+	}
+	if auto == nil {
+		t.Fatal("auto-select group missing")
+	}
+	if nstr(auto, "type") != "url-test" || !has(stringsOf(named(auto, "use")), "old") {
+		t.Fatalf("auto group = %v", auto)
+	}
+	// Interval, tolerance and lazy detection are the bounded experiment values.
+	if nstr(auto, "interval") != "300" || nstr(auto, "tolerance") != "50" || nstr(auto, "lazy") != "true" {
+		t.Fatalf("auto group settings = interval %q tolerance %q lazy %q", nstr(auto, "interval"), nstr(auto, "tolerance"), nstr(auto, "lazy"))
+	}
+	// Independent connectivity still matters: rules and secret must be intact.
+	if !strings.Contains(string(mustRead(t, filepath.Join(a.root, "config.yaml"))), "MATCH,Main") {
+		t.Fatal("rules changed")
+	}
+}
+
+func TestAutoSelectRejectsUnknownProviderAndReferencedDelete(t *testing.T) {
+	a := testApp(t)
+	a.testAPI = func(string, string, any) (M, error) { return M{"proxies": M{}}, nil }
+	if r := a.setAutoSelect(M{"provider": "missing", "enabled": true}); boolv(r["ok"]) {
+		t.Fatal("unknown provider accepted")
+	}
+	if r := a.setAutoSelect(M{"group": "Old", "enabled": false}); boolv(r["ok"]) {
+		t.Fatal("referenced group deleted")
+	}
+	if r := a.setAutoSelect(M{"group": "自动选择", "enabled": false}); !boolv(r["ok"]) {
+		t.Fatalf("missing group should be a no-op: %v", r)
+	}
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	b, e := os.ReadFile(path)
+	if e != nil {
+		t.Fatal(e)
+	}
+	return b
 }
 
 func diagnoseLines(t *testing.T, r M) string {

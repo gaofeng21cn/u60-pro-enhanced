@@ -78,16 +78,28 @@ define(['jquery','service_helper','config/config','u60-web-model','u60-web-advan
  function render(){if(!snapshot||!present())return;placeNav();var content=root.find('.u60-content').empty(),d=snapshot.data||{};root.find('.u60-tab').each(function(){$(this).toggleClass('active',$(this).attr('data-tab')===tab).attr('aria-selected',$(this).attr('data-tab')===tab?'true':'false');});
   if(tab==='overview'){
    var metrics=node('div','u60-metrics'),relay=d.wifi_relay||{},usb=d.usb||{},clash=d.clash||{};
-   var values=[['Clash',clash.online?({rule:'规则分流',global:'全局代理',direct:'直连'}[clash.mode]||'运行中'):'已停止'],['Tailscale',({Running:'已连接',Stopped:'已停止',NeedsLogin:'待登录'})[d.tailscale_status]||d.tailscale_status],['USB 网口',d.usb_status],['上网模式',({clash:'Clash 代理',direct:'直连',tailscale:'Tailscale 出口'})[d.network_profile]||d.network_profile]];
+   var verdict=clash.verdict||'';var verdictLabel={takeover:'代理已生效',partial:'转发不完整',unverified:'未核验',core_down:'核心未运行',tailscale:'Tailscale 出口',error:'异常'}[verdict]||(clash.online?({rule:'规则分流',global:'全局代理',direct:'直连'}[clash.mode]||'运行中'):'已停止');
+   var values=[['代理',verdictLabel],['Tailscale',({Running:'已连接',Stopped:'已停止',NeedsLogin:'待登录'})[d.tailscale_status]||d.tailscale_status],['USB 网口',d.usb_status],['上网模式',({clash:'Clash 代理',direct:'直连',tailscale:'Tailscale 出口'})[d.network_profile]||d.network_profile]];
    values.forEach(function(x){metrics.append(node('div','u60-metric').append(node('span','u60-metric-label',x[0]),node('strong','',x[1])));});content.append(metrics);
+   if(verdict==='partial'||verdict==='unverified'||verdict==='core_down')content.append(node('p','u60-notice error','代理尚未完整生效：'+model.readable(clash.verdict_text||'请检查转发规则')));
    var shortcuts=node('div','u60-shortcuts');[['network','中继与网口','Wi-Fi 上游、AUTO / WAN / LAN'],['clash','Clash','订阅、节点、规则与连接'],['tailscale','Tailscale','组网设备、出口与子网路由'],['device','充电与深待机','充电上限、供电方向、待机服务']].forEach(function(x){shortcuts.append(node('button','u60-shortcut').append(node('strong','',x[1]),node('span','',x[2]),node('b','','↗')).on('click',function(){selectTab(x[0]);}));});content.append(shortcuts);
    content.append(node('p','u60-help','热点、蜂窝网络、流量套餐、短信及路由设置，请使用原厂菜单。'));
 
-  }else{var grid=node('div','u60-grid');model.filterSections(snapshot.sections,tab).forEach(function(s){grid.append(renderSection(s));});content.append(grid);if(tab==='clash'||tab==='tailscale'){if(advancedData[tab])content.append(advanced.render(tab,advancedData[tab],advancedApi()));else content.append(node('p','u60-help','正在加载高级管理功能…'));}}
+  }else{var grid=node('div','u60-grid');model.filterSections(snapshot.sections,tab).forEach(function(s){grid.append(renderSection(s));});content.append(grid);if(tab==='clash'||tab==='tailscale'){if(advancedData[tab])content.append(advanced.render(tab,advancedData[tab],advancedApi()));else content.append(node('p','u60-help','正在加载高级管理功能…'));}
+   if(tab==='clash'){var clashData=d.clash||{},current=clashData.mode,modes=[['rule','规则分流','按规则自动分流'],['global','全局代理','全部经代理节点（需先选节点）'],['direct','直连','仅运行核心，不接管流量']],picker=node('section','u60-card u60-wide-card').append(node('h3','u60-card-title','分流模式'));var mrow=node('div','u60-card-body');modes.forEach(function(x){var b=node('button',x[0]===current?'u60-primary':'u60-secondary',x[1]+(x[0]===current?' · 当前':'')).attr('type','button').on('click',function(){openItem(act('切换为'+x[1],'web.clash.mode',{mode:x[0]}));});mrow.append(b,node('p','u60-help',x[2]));});picker.append(mrow);content.append(picker);
+    /* First-run guide: without a subscription there is nothing to select, so
+     * point at the exact next step instead of showing an empty node list. */
+    var hasProvider=((advancedData.clash||{}).providers||[]).length>0;
+    if(advancedData.clash&&!hasProvider){var guide=node('section','u60-card u60-wide-card').append(node('h3','u60-card-title','首次配置')),gb=node('div','u60-card-body').appendTo(guide);gb.append(node('p','u60-help','还没有订阅。按顺序完成：'));['添加 Mihomo proxy-provider 订阅','更新订阅并确认加载出节点','选择节点并确认回读','保持规则分流并开启代理','用手机断开移动数据验证代理'].forEach(function(step,i){gb.append(node('p','u60-help',(i+1)+'. '+step));});content.append(guide);}
+   }
+  }}
  }
  function loadAdvanced(force){
   if(!present()||busy||reading||advancedReading||(tab!=='clash'&&tab!=='tailscale')||dialog&&dialog[0].open)return;
-  if(!force&&advancedData[tab]&&(Date.now()-(advancedAt[tab]||0)<20000||Date.now()-lastInteraction<8000))return;var kind=tab,generation=alive;advancedReading=true;root.find('.u60-refresh').prop('disabled',true);
+  /* Connections are the one live view: refresh faster there, and keep the
+   * slower cadence everywhere else so routine state reads stay cheap. */
+  var ttl=advanced.intervalFor?advanced.intervalFor(tab):20000;
+  if(!force&&advancedData[tab]&&(Date.now()-(advancedAt[tab]||0)<ttl||Date.now()-lastInteraction<8000))return;var kind=tab,generation=alive;advancedReading=true;root.find('.u60-refresh').prop('disabled',true);
   call('web.'+kind+'.state',{}).then(function(r){if(generation!==alive||!present())return;if(!r||!r.ok){status(r&&r.message||'高级状态读取失败',true);return;}advancedData[kind]=r;advancedAt[kind]=Date.now();if(!(dialog&&dialog[0].open)&&tab===kind&&(force||Date.now()-lastInteraction>2000||!root.find('.u60-advanced').length))render();},function(e){if(generation===alive)status(e.message||String(e),true);}).always(function(){if(generation!==alive)return;advancedReading=false;root.find('.u60-refresh').prop('disabled',busy||reading);if(tab!==kind)loadAdvanced(false);});
  }
  function placeNav(){if(!present())return;var box=root[0].getBoundingClientRect();if(box.width<=0)return;root.find('.u60-tabs').css({left:(box.left+box.width/2)+'px',width:Math.min(900,box.width)+'px'});}

@@ -279,7 +279,12 @@ static void sh_statusbar(struct drm_buf*b,struct app*a,time_t now){
 static void sh_home(struct drm_buf*b,struct app*a){
  struct panel_shell*s=&a->shell;cJSON*d=sh_get(s->snapshot,"data"),*cl=sh_get(d,"clash");char tmp[160],down[40],up[40],today[40],month[40],quota[40],used[40];
  if(!strcmp(sh_str(d,"physical_iface",""),"u60sta"))snprintf(tmp,sizeof(tmp),"%s",sh_str(d,"wifi_status","Wi-Fi 上游中继"));else snprintf(tmp,sizeof(tmp),"%s · %s",sh_str(d,"operator",a->operator[0]?a->operator:"运营商未知"),sh_str(d,"network",a->net_type[0]?a->net_type:"网络未知"));sh_text(b,16,51,tmp,15,SH_CYAN,287);
- const char*profile=sh_str(d,"network_profile","");const char*outlet=!strcmp(profile,"clash")?"Clash":!strcmp(profile,"tailscale")?"Tailscale":!strcmp(profile,"direct")?"直连":"未确认";snprintf(tmp,sizeof(tmp),"出口 %s · %s · %s",outlet,sh_str(d,"band",a->band[0]?a->band:"频段未知"),sh_str(d,"physical_iface","接口未知"));sh_text(b,16,74,tmp,14,SH_MUTED,287);hit_add(a,12,45,308,91,SH_SECTION+1);
+ const char*profile=sh_str(d,"network_profile","");const char*outlet=!strcmp(profile,"clash")?"Clash":!strcmp(profile,"tailscale")?"Tailscale":!strcmp(profile,"direct")?"直连":"未确认";
+ /* Prefer the shared verdict so the home line matches the web page instead of
+   * claiming "代理" from the stored profile alone. */
+ const char*verdict=sh_str(cl,"verdict","");
+ if(!strcmp(verdict,"takeover"))outlet="代理生效";else if(!strcmp(verdict,"partial"))outlet="代理不完整";else if(!strcmp(verdict,"unverified"))outlet="代理未核验";else if(!strcmp(verdict,"core_down"))outlet="代理核心未运行";else if(!strcmp(verdict,"error"))outlet="代理异常";
+ snprintf(tmp,sizeof(tmp),"出口 %s · %s · %s",outlet,sh_str(d,"band",a->band[0]?a->band:"频段未知"),sh_str(d,"physical_iface","接口未知"));sh_text(b,16,74,tmp,14,SH_MUTED,287);hit_add(a,12,45,308,91,SH_SECTION+1);
  sh_surface(b,12,96,308,167,13,sh_category_card(SH_NETWORK_COLOR));sh_metric(d,"download_bps",down,sizeof(down),1);sh_metric(d,"upload_bps",up,sizeof(up),1);
  sh_text(b,24,105,"↓ 下载",14,SH_MUTED,130);sh_text(b,170,105,"↑ 上传",14,SH_MUTED,126);sh_text(b,24,128,down,24,SH_TEXT,135);sh_text(b,170,128,up,24,SH_TEXT,126);
  sh_metric(d,"today_bytes",today,sizeof(today),0);sh_metric(d,"month_bytes",month,sizeof(month),0);sh_surface(b,12,174,308,230,11,sh_category_card(SH_DEVICE_COLOR));
@@ -289,13 +294,13 @@ static void sh_home(struct drm_buf*b,struct app*a){
  sh_text(b,24,272,sh_str(cl,"node",a->node[0]?a->node:"当前节点待确认"),17,SH_TEXT,268);
  sh_metric(cl,"quota_remaining",quota,sizeof(quota),0);snprintf(tmp,sizeof(tmp),"剩余 %s",quota);sh_text(b,24,302,tmp,15,SH_TEXT,139);
  cJSON*u=sh_get(cl,"upload"),*v=sh_get(cl,"download");if(cJSON_IsNumber(u)&&cJSON_IsNumber(v))sh_units(u->valuedouble+v->valuedouble,used,sizeof(used),0);else snprintf(used,sizeof(used),"—");snprintf(tmp,sizeof(tmp),"累计 %s",used);sh_text(b,170,302,tmp,15,SH_MUTED,126);hit_add(a,12,237,308,326,SH_SECTION+22);
- const char*labels[]={"Wi-Fi","USB","Clash","组网"};const char*keys[]={"wifi_status","usb_status","clash_status","tailscale_status"};const char*fallback[]={"未知","未知","读取中","未知"};
+ const char*labels[]={"Wi-Fi","USB","代理","组网"};const char*keys[]={"wifi_status","usb_status","clash_status","tailscale_status"};const char*fallback[]={"未知","未知","读取中","未知"};
  for(int i=0;i<4;i++){int x=12+(i%2)*151,y=332+(i/2)*29;sh_surface(b,x,y,x+145,y+25,7,sh_category_card(i<2?SH_NETWORK_COLOR:SH_SERVICE_COLOR));sh_text(b,x+8,y+5,labels[i],15,SH_MUTED,46);sh_text(b,x+59,y+5,i==2?sh_clash_status(d):sh_str(d,keys[i],fallback[i]),15,SH_TEXT,80);hit_add(a,x,y,x+145,y+25,SH_SECTION+20+i);}
  char cpu[24],mem[24],temp[24],clients[24];cJSON*cp=sh_get(d,"cpu_percent"),*mp=sh_get(d,"memory_percent");if(cJSON_IsNumber(cp))snprintf(cpu,sizeof(cpu),"%.0f",cp->valuedouble);else snprintf(cpu,sizeof(cpu),"—");if(cJSON_IsNumber(mp))snprintf(mem,sizeof(mem),"%.0f",mp->valuedouble);else snprintf(mem,sizeof(mem),"—");sh_value(sh_get(d,"temperature"),temp,sizeof(temp));sh_value(sh_get(d,"clients"),clients,sizeof(clients));snprintf(tmp,sizeof(tmp),"CPU %s%%  内存 %s%%  %s°C",cpu,mem,temp);sh_text(b,16,391,tmp,16,SH_MUTED,288);
  cJSON*uptime=sh_get(d,"uptime_seconds");if(cJSON_IsNumber(uptime))snprintf(tmp,sizeof(tmp),"运行 %dh %dm · %s 台在线",uptime->valueint/3600,(uptime->valueint/60)%60,clients);else snprintf(tmp,sizeof(tmp),"运行时间 — · %s 台在线",clients);sh_text(b,16,412,tmp,16,SH_MUTED,288);
 }
 static void sh_navigation(struct drm_buf*b,struct app*a){
- static const char*t[]={"总览","网络","Clash","组网","设置"};
+ static const char*t[]={"总览","网络","代理","组网","设置"};
  sh_background(b,0,432,320,480);fill_rect(b,0,432,320,433,SH_RAISED);
  for(int i=0;i<5;i++){
   int x=i*64,group=i==1?SH_NETWORK_COLOR:(i==2||i==3)?SH_SERVICE_COLOR:SH_DEVICE_COLOR;
@@ -405,7 +410,7 @@ static void shell_render(struct drm_buf*b,struct app*a){
 #ifndef PANEL_PREVIEW
  static int theme_loaded=0;if(!theme_loaded){sh_theme=panel_theme_load();theme_loaded=1;logline("screen theme loaded=%s",panel_theme_key(sh_theme));}
 #endif
- struct panel_shell*s=&a->shell;const char*titles[]={"U60 Pro","网络","Clash","Tailscale","设置"};
+ struct panel_shell*s=&a->shell;const char*titles[]={"U60 Pro","网络","代理","Tailscale","设置"};
  s->scroll_offset=NULL;draw_clip_top=0;draw_clip_bottom=H;
  if(s->tab<0||s->tab>4)s->tab=0;sh_background(b,0,0,320,480);hit_reset(a);
  const char*title=s->subpage?sh_str(sh_section(a,s->section),"title",s->section):titles[s->tab];

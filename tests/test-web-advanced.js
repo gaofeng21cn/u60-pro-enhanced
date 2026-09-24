@@ -53,6 +53,8 @@ function findButton(node, label) {
 const base = {
   revision: 'rev', mode: 'rule', online: true, core_online: true, takeover: true, profile: 'clash',
   active_group: '订阅 · 示例', active_path: ['选择节点', '订阅 · 示例'], active_node: '示例节点 A01',
+  verdict: 'takeover', verdict_text: '规则代理已接管 IPv4 TCP 与 DNS', active_path_label: '默认代理路径',
+  coverage_checked: true, coverage_tcp: true, coverage_dns: true,
   providers: [{
     name: '示例订阅', host: 'provider.invalid', interval: 3600, count: 30,
     updated: '2026-09-23T23:32:17Z',
@@ -60,7 +62,7 @@ const base = {
   }],
   groups: [
     { name: '选择节点', type: 'Selector', selected: '订阅 · 示例', nodes: ['订阅 · 示例'], selectable_nodes: [] },
-    { name: '订阅 · 示例', type: 'Selector', selected: '示例节点 A01', nodes: ['示例节点 A01', 'DIRECT'], selectable_nodes: ['示例节点 A01'] },
+    { name: '订阅 · 示例', type: 'Selector', selected: '示例节点 A01', nodes: ['示例节点 A01', '示例节点 B02', 'DIRECT'], selectable_nodes: ['示例节点 A01', '示例节点 B02'] },
   ],
   destination_groups: ['选择节点'], rules: [], local_rules: [], connections: [], connection_count: 0,
 };
@@ -68,31 +70,75 @@ const base = {
 const opened = [];
 const api = { open: (item) => opened.push(item), call: () => Promise.resolve({}), status: () => {}, refresh: () => {} };
 
+function subtabButton(label) {
+  return findButton(advanced.render('clash', base, api), label);
+}
 const view = texts(advanced.render('clash', base, api)).join('\n');
 for (const want of [
   'Mihomo 核心', '运行中',
-  '上网接管', '已接管 IPv4 TCP 与 DNS',
+  '当前结论', '规则代理已接管 IPv4 TCP 与 DNS',
+  '转发规则', 'TCP 已生效', 'DNS 已生效',
   '分流模式', '规则分流',
-  '流量路径', 'MATCH → 选择节点 → 订阅 · 示例 → 示例节点 A01',
+  '默认代理路径', 'MATCH → 选择节点 → 订阅 · 示例 → 示例节点 A01',
   'UDP 443 被拒绝',
-  '30 个节点', 'provider.invalid', '到期', '用量',
 ]) {
   assert(view.includes(want), `missing ${want} in\n${view}`);
 }
+assert(view.includes('全部节点（按订阅顺序）'), `node list should be the default subtab in\n${view}`);
+subtabButton('订阅').handlers.click();
+const subs = texts(advanced.render('clash', base, api)).join('\n');
+for (const want of ['30 个节点', 'provider.invalid', '到期', '用量']) {
+  assert(subs.includes(want), `missing ${want} in\n${subs}`);
+}
 
-advanced.render('clash', base, api);
 const diagnose = findButton(advanced.render('clash', base, api), '代理覆盖自检');
 assert(diagnose, 'diagnose button missing');
 diagnose.handlers.click();
 assert.deepStrictEqual(opened.pop(), { label: '代理覆盖自检', type: 'action', action: 'web.clash.diagnose', args: {}, confirm: false, enabled: true });
 
-const direct = texts(advanced.render('clash', Object.assign({}, base, { takeover: false, profile: 'direct', active_path: [], active_node: '', core_online: false, online: false }), api)).join('\n');
+const direct = texts(advanced.render('clash', Object.assign({}, base, { verdict: 'direct', verdict_text: '未启用代理，当前直连', takeover: false, profile: 'direct', active_path: [], active_node: '', core_online: false, online: false }), api)).join('\n');
 assert(direct.includes('未运行'), direct);
-assert(direct.includes('未接管 · 当前出口 直连'), direct);
+assert(direct.includes('未启用代理，当前直连'), direct);
 
+const partial = texts(advanced.render('clash', Object.assign({}, base, { verdict: 'partial', verdict_text: '转发不完整：TCP 或 DNS 未生效', coverage_dns: false }), api)).join('\n');
+assert(partial.includes('转发不完整'), partial);
+assert(partial.includes('DNS 未生效'), partial);
+assert(partial.includes('客户端可能直接暴露'), partial);
+
+subtabButton('订阅').handlers.click();
 const stale = texts(advanced.render('clash', Object.assign({}, base, {
   providers: [Object.assign({}, base.providers[0], { updated: '2020-01-01T00:00:00Z' })],
 }), api)).join('\n');
 assert(stale.includes('已超过两个更新周期'), stale);
 
-console.log('web advanced: passed; coverage card, diagnose action, profile and subscription states');
+subtabButton('状态与节点').handlers.click();
+const withPrefs = Object.assign({}, base, {
+  prefs: { favorites: ['示例节点 A01'], recents: ['示例节点 B02', '示例节点 A01'], delays: { '示例节点 A01': { ms: 82, at: 1 } } },
+});
+const prefView = texts(advanced.render('clash', withPrefs, api)).join('\n');
+for (const want of ['收藏', '最近使用', '82 ms', '使用', '延迟']) {
+  assert(prefView.includes(want), `missing ${want} in\n${prefView}`);
+}
+const fav = findButton(advanced.render('clash', withPrefs, api), '取消收藏');
+assert(fav, 'favorite toggle missing for an already-favorited node');
+fav.handlers.click();
+assert.deepStrictEqual(opened.pop(), { label: '取消收藏 示例节点 A01', type: 'action', action: 'web.clash.favorite', args: { name: '示例节点 A01' }, confirm: false, enabled: true });
+
+// Auto-select: offer enable per provider, or disable when a url-test group exists.
+const enableAuto = findButton(advanced.render('clash', base, api), '对「示例订阅」启用');
+assert(enableAuto, 'auto-select enable button missing');
+enableAuto.handlers.click();
+assert.deepStrictEqual(opened.pop(), { label: '启用自动选择', type: 'action', action: 'web.clash.autoselect', args: { group: '自动选择', provider: '示例订阅', enabled: true }, confirm: true, enabled: true });
+const autoBase = Object.assign({}, base, { groups: base.groups.concat([{ name: '自动选择', type: 'URLTest', selected: '示例节点 A01', nodes: [], selectable_nodes: [] }]) });
+const disableAuto = findButton(advanced.render('clash', autoBase, api), '关闭自动选择');
+assert(disableAuto, 'auto-select disable button missing');
+disableAuto.handlers.click();
+assert.deepStrictEqual(opened.pop(), { label: '关闭自动选择', type: 'action', action: 'web.clash.autoselect', args: { group: '自动选择', enabled: false }, confirm: true, enabled: true });
+
+assert.strictEqual(advanced.intervalFor('clash'), 20000, 'non-connections views keep the slow interval');
+subtabButton('连接与诊断').handlers.click();
+advanced.render('clash', base, api);
+assert.strictEqual(advanced.intervalFor('clash'), 5000, 'connections view polls faster');
+subtabButton('状态与节点').handlers.click();
+
+console.log('web advanced: passed; verdicts, default node view, favorites/recents, auto-select, refresh cadence');

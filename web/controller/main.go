@@ -351,7 +351,26 @@ func (a *App) clashState() M {
 	profile := a.networkProfile()
 	out["profile"] = profile
 	out["takeover"] = profile == "clash"
+	// A single verdict keeps "configured", "core running" and "traffic really
+	// redirected" from being conflated in either UI. profileVerify is a
+	// read-only receipt from the network owner, so a missing or partial
+	// redirect downgrades the claim instead of showing a false takeover.
+	verify, verr := a.profileVerify()
+	redirect := obj(verify["redirect"])
+	tcpOK := verr == nil && boolv(redirect["prerouting_tcp"])
+	dnsOK := verr == nil && boolv(redirect["dns"])
+	out["coverage_checked"] = verr == nil
+	out["coverage_tcp"] = tcpOK
+	out["coverage_dns"] = dnsOK
+	out["coverage_udp443_reject"] = verr == nil && boolv(redirect["udp443_reject"])
+	out["coverage_guard"] = verr == nil && boolv(redirect["guard"])
+	out["ipv6_default_route"] = verr == nil && boolv(verify["ipv6_default_route"])
+	verdict, verdictText := coverageVerdict(profile, mode, mode != "", tcpOK, dnsOK, verr == nil, boolv(redirect["guard"]))
+	out["verdict"] = verdict
+	out["verdict_text"] = verdictText
 	out["scope"] = M{"level": "ipv4_tcp_dns", "label": "IPv4 TCP 与 DNS", "udp": false, "ipv6": false}
+	out["active_path_label"] = "默认代理路径"
+	out["prefs"] = a.panelPrefs()
 	gn := named(root, "proxy-groups")
 	if gn != nil {
 		for _, g := range gn.Content {
@@ -378,6 +397,57 @@ func (a *App) clashState() M {
 	}
 	out["connections"] = connections
 	out["connection_count"] = len(allCon)
+	return out
+}
+// coverageVerdict folds the separate facts into the one sentence the UI shows.
+// It never claims takeover unless the forwarding rules were actually read back.
+func coverageVerdict(profile, mode string, coreOnline, tcp, dns, verified, guard bool) (string, string) {
+	switch profile {
+	case "clash":
+		if !coreOnline {
+			return "core_down", "代理核心未运行，当前无法代理"
+		}
+		if !verified {
+			return "unverified", "已配置代理，转发规则未能核验"
+		}
+		if tcp && dns {
+			if mode == "global" {
+				return "takeover", "全局代理已接管 IPv4 TCP 与 DNS"
+			}
+			return "takeover", "规则代理已接管 IPv4 TCP 与 DNS"
+		}
+		return "partial", "转发不完整：TCP 或 DNS 未生效"
+	case "tailscale":
+		return "tailscale", "当前为 Tailscale 出口，未启用代理转发"
+	case "error":
+		if guard {
+			return "error_guarded", "异常状态：转发已被阻断，请检查出口"
+		}
+		return "error", "异常状态：转发可能未阻断，请检查出口"
+	}
+	return "direct", "未启用代理，当前直连"
+}
+// panelPrefs mirrors the device-side preference file written by the panel
+// control adapter. It is read-only here so only one writer mutates the file.
+func (a *App) panelPrefs() M {
+	out := M{"favorites": []any{}, "recents": []any{}, "delays": M{}}
+	b, e := os.ReadFile(filepath.Join(a.root, "panel-prefs.json"))
+	if e != nil || len(b) > 65536 {
+		return out
+	}
+	var raw M
+	if json.Unmarshal(b, &raw) != nil {
+		return out
+	}
+	if arr(raw["favorites"]) != nil {
+		out["favorites"] = raw["favorites"]
+	}
+	if arr(raw["recents"]) != nil {
+		out["recents"] = raw["recents"]
+	}
+	if m, ok := raw["delays"].(map[string]any); ok {
+		out["delays"] = m
+	}
 	return out
 }
 func (a *App) selectProxy(args M) M {
@@ -410,7 +480,272 @@ func (a *App) selectProxy(args M) M {
 	if err != nil || text(after["now"]) != node {
 		return fail("切换结果未回读确认，请刷新状态后核对")
 	}
-	return success("节点已切换并回读确认")
+	a.recordRecent(node)
+	return success("节点已切换并回读确认，新连接将使用该节点")
+}
+// recordRecent keeps the shared recent-node list in sync for both UIs. The
+// screen adapter writes the same file, so updates take the same exclusive lock
+// and land through an atomic rename. Only node names are stored.
+func (a *App) recordRecent(node string) {
+	if node == "" || strings.ContainsAny(node, "\r\n\x00") || len(node) > 512 {
+		return
+	}
+	_ = a.updatePrefs(func(prefs M) {
+		recents := []any{node}
+		for _, v := range arr(prefs["recents"]) {
+			name := text(v)
+			if name == "" || name == node {
+				continue
+			}
+			if len(recents) >= 5 {
+				break
+			}
+			recents = append(recents, name)
+		}
+		prefs["recents"] = recents
+	})
+}
+// updatePrefs applies one mutation under the same lock file the panel uses and
+// writes the result atomically at 0600.
+func (a *App) updatePrefs(mutate func(M)) error {
+	path := filepath.Join(a.root, "panel-prefs.json")
+	lock, e := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
+	if e != nil {
+		return e
+	}
+	defer lock.Close()
+	deadline := time.Now().Add(time.Second)
+	for syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+		if time.Now().After(deadline) {
+			return errors.New("节点偏好正被另一项操作占用")
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	prefs := M{"favorites": []any{}, "recents": []any{}, "delays": M{}}
+	if b, e := os.ReadFile(path); e == nil && len(b) <= 65536 {
+		var raw M
+		if json.Unmarshal(b, &raw) == nil {
+			if arr(raw["favorites"]) != nil {
+				prefs["favorites"] = raw["favorites"]
+			}
+			if arr(raw["recents"]) != nil {
+				prefs["recents"] = raw["recents"]
+			}
+			if m, ok := raw["delays"].(map[string]any); ok {
+				prefs["delays"] = m
+			}
+		}
+	}
+	mutate(prefs)
+	return atomicWrite(path, mustJSON(prefs), 0600)
+}
+func mustJSON(v any) []byte {
+	b, e := json.Marshal(v)
+	if e != nil {
+		return []byte("{}")
+	}
+	return b
+}
+func (a *App) toggleFavorite(args M) M {
+	name := text(args["name"])
+	if name == "" || len(name) > 512 || strings.ContainsAny(name, "\r\n\x00") {
+		return fail("节点名称无效")
+	}
+	on := false
+	if e := a.updatePrefs(func(prefs M) {
+		out := []any{}
+		removed := false
+		for _, v := range arr(prefs["favorites"]) {
+			existing := text(v)
+			if existing == "" {
+				continue
+			}
+			if existing == name {
+				removed = true
+				continue
+			}
+			out = append(out, existing)
+		}
+		if !removed {
+			out = append([]any{name}, out...)
+			if len(out) > 20 {
+				out = out[:20]
+			}
+			on = true
+		}
+		prefs["favorites"] = out
+	}); e != nil {
+		return fail("节点偏好保存失败，请重试")
+	}
+	if on {
+		return success("已加入收藏")
+	}
+	return success("已取消收藏")
+}
+// setMode applies the proxy mode through the shared writer lock and refuses to
+// claim global proxying while GLOBAL still resolves to a direct policy.
+func (a *App) setMode(args M) M {
+	mode := text(args["mode"])
+	if mode != "rule" && mode != "global" && mode != "direct" {
+		return fail("无效的代理模式")
+	}
+	if mode == "global" {
+		all, e := a.api("GET", "/proxies", nil)
+		if e != nil {
+			return fail("无法读取当前策略，未切换模式")
+		}
+		leaf := resolveSelectorLeaf(obj(all["proxies"]), "GLOBAL")
+		switch leaf {
+		case "", "DIRECT", "REJECT", "REJECT-DROP":
+			return fail("全局代理需要先选择可用节点（当前 GLOBAL 指向直连）")
+		}
+	}
+	before, e := a.api("GET", "/configs", nil)
+	if e != nil {
+		return fail("无法读取当前模式，未修改")
+	}
+	previous := text(before["mode"])
+	if previous != "rule" && previous != "global" && previous != "direct" {
+		return fail("无法读取当前模式，未修改")
+	}
+	if _, e = a.api("PATCH", "/configs", M{"mode": mode}); e != nil {
+		return fail(e.Error())
+	}
+	after, e := a.api("GET", "/configs", nil)
+	if e != nil || text(after["mode"]) != mode {
+		if _, restoreErr := a.api("PATCH", "/configs", M{"mode": previous}); restoreErr != nil {
+			return fail("模式回读不一致，恢复原模式也未确认，请刷新核对")
+		}
+		return fail("模式回读不一致，已恢复原模式")
+	}
+	if e = a.persistMode(mode); e != nil {
+		if _, restoreErr := a.api("PATCH", "/configs", M{"mode": previous}); restoreErr != nil {
+			return fail("模式保存失败，运行模式恢复也未确认，请刷新核对")
+		}
+		return fail("模式保存失败，已恢复原运行模式")
+	}
+	labels := map[string]string{"rule": "规则分流", "global": "全局代理", "direct": "直连模式"}
+	return success("分流模式已切换为" + labels[mode] + "并回读确认")
+}
+func resolveSelectorLeaf(proxies M, group string) string {
+	name := group
+	for depth := 0; depth < 16 && name != ""; depth++ {
+		node := obj(proxies[name])
+		if len(node) == 0 {
+			// A provider leaf has no entry in the top-level /proxies object.
+			// Only the starting group must exist; later misses are the leaf.
+			if depth == 0 {
+				return ""
+			}
+			return name
+		}
+		next := text(node["now"])
+		if next == "" {
+			return name
+		}
+		name = next
+	}
+	return ""
+}
+// persistMode writes the same "mode" sidecar the panel adapter maintains so a
+// restart keeps the chosen mode without rewriting the whole config.
+func (a *App) persistMode(mode string) error {
+	return atomicWrite(filepath.Join(a.root, "mode"), []byte(mode+"\n"), 0600)
+}
+// setAutoSelect adds or updates a bounded url-test group that follows a
+// subscription provider, or removes it again for manual control. Latency-based
+// selection reuses the core's own health checks instead of a new scheduler.
+func (a *App) setAutoSelect(args M) M {
+	group := strings.TrimSpace(text(args["group"]))
+	provider := strings.TrimSpace(text(args["provider"]))
+	enable := boolv(args["enabled"])
+	if group == "" {
+		group = "自动选择"
+	}
+	if !validName(group) || strings.ContainsAny(group, ",") {
+		return fail("自动选择策略组名称无效")
+	}
+	old, root, e := a.config()
+	if e != nil {
+		return fail(e.Error())
+	}
+	groups := named(root, "proxy-groups")
+	if groups == nil || groups.Kind != yaml.SequenceNode {
+		return fail("当前配置缺少标准策略组结构")
+	}
+	existing := -1
+	for i, g := range groups.Content {
+		if nstr(g, "name") == group {
+			existing = i
+		}
+	}
+	if !enable {
+		if existing < 0 {
+			return success("自动选择策略组不存在，未修改")
+		}
+		// Refuse to delete a group a rule or another group still references.
+		for _, rule := range stringsOf(named(root, "rules")) {
+			for _, part := range strings.Split(rule, ",")[1:] {
+				if part == group {
+					return fail("分流规则仍引用自动选择组，请先调整规则")
+				}
+			}
+		}
+		for _, g := range groups.Content {
+			if has(stringsOf(named(g, "proxies")), group) || has(stringsOf(named(g, "use")), group) {
+				return fail("其他策略组仍引用自动选择组，请先调整")
+			}
+		}
+		kept := append([]*yaml.Node{}, groups.Content[:existing]...)
+		kept = append(kept, groups.Content[existing+1:]...)
+		groups.Content = kept
+	} else {
+		if provider == "" {
+			return fail("请选择要自动选择的订阅")
+		}
+		pp := named(root, "proxy-providers")
+		if pp == nil || named(pp, provider) == nil {
+			return fail("订阅不存在")
+		}
+		node := &yaml.Node{}
+		node.Encode(M{
+			"name":            group,
+			"type":            "url-test",
+			"use":             []string{provider},
+			"url":             "https://www.gstatic.com/generate_204",
+			"interval":        300,
+			"tolerance":       50,
+			"lazy":            true,
+			"expected-status": "204",
+		})
+		if existing >= 0 {
+			groups.Content[existing] = node
+		} else {
+			groups.Content = append(groups.Content, node)
+			// Make the new group reachable from GLOBAL without disturbing rules.
+			for _, g := range groups.Content {
+				if nstr(g, "name") != "GLOBAL" {
+					continue
+				}
+				edges := stringsOf(named(g, "proxies"))
+				if !has(edges, group) {
+					nset(g, "proxies", append(edges, group))
+				}
+			}
+		}
+	}
+	next, e := replaceBlocks(old, root, []string{"proxy-groups"})
+	if e != nil {
+		return fail(e.Error())
+	}
+	if e = a.apply(old, next, nil); e != nil {
+		return fail(e.Error())
+	}
+	if !enable {
+		return success("自动选择已关闭；当前节点选择保持不变")
+	}
+	return success("自动选择已启用：按连通延迟在 300 秒间隔内自动切换，容差 50 ms")
 }
 
 // activeRoot returns the policy reached by the active mode and the live mode.
@@ -1082,6 +1417,12 @@ func (a *App) dispatch(r Request) M {
 		return a.clashDiagnose()
 	case "web.clash.select":
 		return a.selectProxy(r.Args)
+	case "web.clash.favorite":
+		return a.toggleFavorite(r.Args)
+	case "web.clash.mode":
+		return a.setMode(r.Args)
+	case "web.clash.autoselect":
+		return a.setAutoSelect(r.Args)
 	case "web.clash.subscription_save":
 		return a.saveSubscription(r.Args)
 	case "web.clash.subscription_delete":
