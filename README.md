@@ -124,7 +124,7 @@ adb shell sh /data/u60-panel/setup-clash.sh
 
 ## 开源许可
 
-本项目整体采用 **GPL-3.0-only**，第三方文件和库继续使用各自原许可证。仓库中的屏幕核心包含基于 GPL-3.0 示例改造的代码，并保留相应版权和许可声明，因此当前不能把整个项目改成 Apache-2.0；只有与 GPL 代码完全分离、版权边界清楚的原创独立组件，才可以另行采用 Apache-2.0。完整条款见 [LICENSE](LICENSE) 和[第三方声明](THIRD_PARTY_NOTICES.md)。
+本项目整体采用 **GPL-3.0-only**。仓库中的屏幕核心基于 GPL-3.0 示例改造，并保留相应版权和许可声明；第三方文件和库继续沿用各自的原许可证。完整条款见 [LICENSE](LICENSE) 和[第三方声明](THIRD_PARTY_NOTICES.md)。
 
 ## 来源与反馈
 
