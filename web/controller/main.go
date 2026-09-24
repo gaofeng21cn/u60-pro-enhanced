@@ -33,12 +33,12 @@ type Request struct {
 	Args   M      `json:"args"`
 }
 type App struct {
-	root, tsSock string
-	apiBase      string
-	http         *http.Client
-	validate     func(string) error
-	reload       func() error
-	testAPI      func(string, string, any) (M, error)
+	root, tsSock, panelDir string
+	apiBase                string
+	http                   *http.Client
+	validate               func(string) error
+	reload                 func() error
+	testAPI                func(string, string, any) (M, error)
 }
 
 func fail(s string) M    { return M{"ok": false, "message": s} }
@@ -79,28 +79,48 @@ func selectableNodes(proxies M, group M) []any {
 	}
 	return selectable
 }
-func activeSelectorGroup(proxies M, root string) string {
+
+// activeSelectorPath walks the selector chain reached by the active rule or
+// global root. Nested subscription selectors stay out of the initial leaf list.
+func activeSelectorPath(proxies M, root string) []any {
+	path := []any{}
 	seen := map[string]bool{}
 	for depth := 0; depth < 16 && root != ""; depth++ {
 		if seen[root] {
-			return ""
+			return nil
 		}
 		seen[root] = true
 		group := obj(proxies[root])
 		if !strings.EqualFold(text(group["type"]), "Selector") || group["all"] == nil {
-			return ""
+			return path
 		}
+		path = append(path, root)
 		selected := text(group["now"])
 		if selected == "" {
-			return root
+			return path
 		}
 		nested := obj(proxies[selected])
 		if !strings.EqualFold(text(nested["type"]), "Selector") || nested["all"] == nil {
-			return root
+			return path
 		}
 		root = selected
 	}
-	return ""
+	return nil
+}
+func activeSelectorGroup(proxies M, root string) string {
+	path := activeSelectorPath(proxies, root)
+	if len(path) == 0 {
+		return ""
+	}
+	return text(path[len(path)-1])
+}
+
+// pathNode is the node the last group on the path currently resolves to.
+func pathNode(proxies M, path []any) string {
+	if len(path) == 0 {
+		return ""
+	}
+	return text(obj(proxies[text(path[len(path)-1])])["now"])
 }
 func number(v any) int {
 	switch n := v.(type) {
@@ -317,25 +337,21 @@ func (a *App) clashState() M {
 	}
 	// Prefer the selector currently reached by the active rule/global root.
 	// This keeps nested subscription selectors out of the initial leaf list.
+	rootPolicy, mode := a.activeRoot()
+	path := activeSelectorPath(proxies, rootPolicy)
 	activeGroup := ""
-	if cfg, e := a.api("GET", "/configs", nil); e == nil {
-		root := ""
-		if text(cfg["mode"]) == "global" {
-			root = "GLOBAL"
-		} else if text(cfg["mode"]) == "rule" {
-			if liveRules, e := a.api("GET", "/rules", nil); e == nil {
-				for _, rule := range arr(liveRules["rules"]) {
-					entry := obj(rule)
-					if strings.EqualFold(text(entry["type"]), "Match") {
-						root = text(entry["proxy"])
-						break
-					}
-				}
-			}
-		}
-		activeGroup = activeSelectorGroup(proxies, root)
+	if len(path) > 0 {
+		activeGroup = text(path[len(path)-1])
 	}
 	out["active_group"] = activeGroup
+	out["active_path"] = path
+	out["active_node"] = pathNode(proxies, path)
+	out["mode"] = mode
+	out["core_online"] = mode != ""
+	profile := a.networkProfile()
+	out["profile"] = profile
+	out["takeover"] = profile == "clash"
+	out["scope"] = M{"level": "ipv4_tcp_dns", "label": "IPv4 TCP 与 DNS", "udp": false, "ipv6": false}
 	gn := named(root, "proxy-groups")
 	if gn != nil {
 		for _, g := range gn.Content {
@@ -395,6 +411,150 @@ func (a *App) selectProxy(args M) M {
 		return fail("切换结果未回读确认，请刷新状态后核对")
 	}
 	return success("节点已切换并回读确认")
+}
+
+// activeRoot returns the policy reached by the active mode and the live mode.
+// An empty mode means the core did not answer.
+func (a *App) activeRoot() (string, string) {
+	cfg, e := a.api("GET", "/configs", nil)
+	if e != nil {
+		return "", ""
+	}
+	mode := text(cfg["mode"])
+	switch mode {
+	case "global":
+		return "GLOBAL", mode
+	case "rule":
+		if liveRules, e := a.api("GET", "/rules", nil); e == nil {
+			for _, rule := range arr(liveRules["rules"]) {
+				entry := obj(rule)
+				if strings.EqualFold(text(entry["type"]), "Match") {
+					return text(entry["proxy"]), mode
+				}
+			}
+		}
+	}
+	return "", mode
+}
+func (a *App) panelPath(name string) string {
+	dir := a.panelDir
+	if dir == "" {
+		dir = "/data/u60-panel"
+	}
+	return filepath.Join(dir, name)
+}
+
+// networkProfile mirrors the panel's own state reader: unknown values mean direct.
+func (a *App) networkProfile() string {
+	p := "direct"
+	if b, e := os.ReadFile(a.panelPath("network-profile")); e == nil {
+		p = strings.TrimSpace(string(b))
+	}
+	switch p {
+	case "clash", "direct", "tailscale", "error":
+		return p
+	}
+	return "direct"
+}
+
+// profileVerify asks the network owner for a read-only coverage receipt.
+func (a *App) profileVerify() (M, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	b, e := exec.CommandContext(ctx, a.panelPath("network-profile.sh"), "verify").Output()
+	if e != nil || len(b) > 65536 {
+		return nil, errors.New("网络协调脚本未返回覆盖状态")
+	}
+	var out M
+	if json.Unmarshal(b, &out) != nil {
+		return nil, errors.New("网络覆盖状态响应无效")
+	}
+	return out, nil
+}
+func coverage(ok bool) string {
+	if ok {
+		return "已生效"
+	}
+	return "未确认"
+}
+
+// clashDiagnose separates "the core is running" from "traffic is redirected"
+// and reports the parts that are honestly not proxied.
+func (a *App) clashDiagnose() M {
+	lines := []string{}
+	version := ""
+	if v, e := a.api("GET", "/version", nil); e == nil {
+		version = strings.TrimSpace(text(v["version"]))
+	}
+	if version != "" {
+		lines = append(lines, "核心：运行中 · "+version)
+	} else {
+		lines = append(lines, "核心：未运行或本机接口不可用")
+	}
+	profile := a.networkProfile()
+	switch profile {
+	case "clash":
+		lines = append(lines, "接管：已启用 Clash 出口，IPv4 TCP 与 DNS 走代理")
+	case "tailscale":
+		lines = append(lines, "接管：当前为 Tailscale 出口，未启用 Clash 转发")
+	case "error":
+		lines = append(lines, "接管：异常状态，转发可能已被阻断，请检查出口")
+	default:
+		lines = append(lines, "接管：未启用，当前直连")
+	}
+	verify, verr := a.profileVerify()
+	red := obj(verify["redirect"])
+	if verr != nil {
+		lines = append(lines, "转发规则：无法核验 · 网络协调脚本不可用")
+	} else {
+		lines = append(lines, "转发规则：TCP "+coverage(boolv(red["prerouting_tcp"]))+" · DNS "+coverage(boolv(red["dns"]))+" · UDP 443 拒绝 "+coverage(boolv(red["udp443_reject"])))
+		if boolv(red["guard"]) {
+			lines = append(lines, "失败保护：正在阻断经过本机的转发（fail-closed）")
+		}
+	}
+	switch {
+	case verr == nil && boolv(red["ipv6_redirect"]):
+		lines = append(lines, "IPv6：已重定向")
+	case verr == nil && boolv(verify["ipv6_default_route"]):
+		lines = append(lines, "IPv6：未代理，但存在 IPv6 默认路由，客户端可能绕过代理")
+	default:
+		lines = append(lines, "IPv6：未代理")
+	}
+	lines = append(lines, "UDP：未代理，443 以外的 UDP 按直连处理")
+	if path := a.diagnosePath(); path != "" {
+		lines = append(lines, "当前路径："+path)
+	} else {
+		lines = append(lines, "当前路径：未确认，请核对分流模式与代理规则")
+	}
+	report := make([]any, 0, len(lines))
+	for _, line := range lines {
+		report = append(report, line)
+	}
+	return M{"ok": true, "message": "代理覆盖自检完成", "report": M{"title": "代理覆盖自检", "lines": report}}
+}
+func (a *App) diagnosePath() string {
+	all, e := a.api("GET", "/proxies", nil)
+	if e != nil {
+		return ""
+	}
+	proxies := obj(all["proxies"])
+	root, mode := a.activeRoot()
+	path := activeSelectorPath(proxies, root)
+	if len(path) == 0 {
+		return ""
+	}
+	head := "MATCH"
+	if mode == "global" {
+		head = "GLOBAL"
+	}
+	steps := []string{head}
+	for _, group := range path {
+		steps = append(steps, text(group))
+	}
+	if node := pathNode(proxies, path); node != "" {
+		steps = append(steps, node)
+	}
+	return strings.Join(steps, " → ")
 }
 func localRules(b []byte) []any {
 	out := []any{}
@@ -918,6 +1078,8 @@ func (a *App) dispatch(r Request) M {
 	switch r.Action {
 	case "web.clash.state":
 		return a.clashState()
+	case "web.clash.diagnose":
+		return a.clashDiagnose()
 	case "web.clash.select":
 		return a.selectProxy(r.Args)
 	case "web.clash.subscription_save":
@@ -986,7 +1148,7 @@ func main() {
 		if dec.Decode(&extra) != io.EOF {
 			return fail("请求格式无效")
 		}
-		read := r.Action == "web.clash.state" || r.Action == "web.tailscale.state" || r.Action == "web.tailscale.netcheck"
+		read := r.Action == "web.clash.state" || r.Action == "web.clash.diagnose" || r.Action == "web.tailscale.state" || r.Action == "web.tailscale.netcheck"
 		if !read {
 			f, e := os.OpenFile("/tmp/u60-control.lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
 			if e != nil {
@@ -1005,7 +1167,7 @@ func main() {
 				return fail("正在恢复休眠前的服务，请稍后重试")
 			}
 		}
-		a := &App{root: "/data/u60-clash", tsSock: "/tmp/tailscale/tailscaled.sock", http: &http.Client{Timeout: 15 * time.Second}}
+		a := &App{root: "/data/u60-clash", panelDir: "/data/u60-panel", tsSock: "/tmp/tailscale/tailscaled.sock", http: &http.Client{Timeout: 15 * time.Second}}
 		a.validate = func(path string) error {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()

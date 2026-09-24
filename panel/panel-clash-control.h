@@ -13,6 +13,9 @@
 #ifndef CC_API_PORT
 #define CC_API_PORT 19090
 #endif
+#ifndef CC_PROFILE_SCRIPT
+#define CC_PROFILE_SCRIPT "/data/u60-panel/network-profile.sh"
+#endif
 static char cc_secret[128];
 static int cc_load_secret(void)
 {
@@ -254,7 +257,10 @@ static void control_clash_sections(cJSON *root) {
  cJSON *n;cJSON_ArrayForEach(n,jget(g,"all"))if(cJSON_IsString(n)&&!cc_builtin(n->valuestring))cc_choice(choices,n->valuestring,"name",n->valuestring);
  cJSON_ReplaceItemInObject(i,"enabled",cJSON_CreateBool(!strcmp(jstr(g,"type"),"Selector")&&cJSON_GetArraySize(choices)>0));
  cJSON_Delete(live_rules);
- cc_item(items,"scope","代理范围","IPv4 TCP 与 DNS；其他流量不保证代理","info",NULL);
+ /* Serving state and interception state are separate facts on this screen. */
+ cc_item(items,"coverage","代理覆盖",active?"已接管 IPv4 TCP 与 DNS":"未接管上网，当前直连","info",NULL);
+ i=cc_item(items,"diagnose","代理覆盖自检","核对转发规则与未代理范围","action","clash.diagnose");cJSON_AddBoolToObject(i,"confirm",0);
+ cc_item(items,"scope","代理范围","UDP 与 IPv6 不代理；UDP 443 被拒绝","info",NULL);
  i=cc_item(items,"delay","节点测速","选择专线测速","choice","clash.delay");choices=cJSON_AddArrayToObject(i,"choices");
  /* Use the same choices as the node selector, never its parent group. */
  cJSON_ArrayForEach(n,jget(g,"all"))if(cJSON_IsString(n)&&!cc_builtin(n->valuestring)){
@@ -298,6 +304,20 @@ static cJSON *control_clash_action(const char *action,const cJSON *args) {
   j=cJSON_CreateObject();cJSON_AddStringToObject(j,"name",name);ok=cc_write("PUT",path,j);cJSON_Delete(j);j=cc_get(path);ok=ok&&!strcmp(jstr(j,"now"),name);cJSON_Delete(j);
  }else if(!strcmp(action,"clash.delay")){
   const char *name=jstr(args,"name");if(!*name||strlen(name)>512)return reply(0,"请选择节点");cc_urlenc(name,enc,sizeof(enc));snprintf(path,sizeof(path),"/proxies/%s/delay?timeout=5000&url=https%%3A%%2F%%2Fwww.gstatic.com%%2Fgenerate_204",enc);char buf[512];int n=cc_http_to("GET",path,NULL,buf,sizeof(buf),7);j=n>0?cJSON_Parse(buf):NULL;int ms=(int)cc_num(j,"delay");cJSON_Delete(j);char msg[80];snprintf(msg,sizeof(msg),ms>0?"延迟 %d ms":"测速失败或超时",ms);return reply(ms>0,msg);
+ }else if(!strcmp(action,"clash.diagnose")){
+  char out[2048],msg[420];char *av[]={"network-profile.sh","verify",NULL};int ran=run_cmd(CC_PROFILE_SCRIPT,av,NULL,out,sizeof(out));
+  cJSON *v=ran?cJSON_Parse(out):NULL;
+  if(!cJSON_IsObject(v)){cJSON_Delete(v);return reply(0,"覆盖自检脚本不可用，请检查网络协调服务");}
+  const char *profile=jstr(v,"profile");cJSON *red=jget(v,"redirect");
+  int tcp=cJSON_IsTrue(jget(red,"prerouting_tcp")),dns=cJSON_IsTrue(jget(red,"dns")),reject=cJSON_IsTrue(jget(red,"udp443_reject")),guard=cJSON_IsTrue(jget(red,"guard")),v6=cJSON_IsTrue(jget(v,"ipv6_default_route"));
+  if(!strcmp(profile,"clash")){
+   if(tcp&&dns)snprintf(msg,sizeof(msg),"已接管 IPv4 TCP 与 DNS%s%s",reject?"；UDP 443 已拒绝":"；UDP 443 未拒绝",v6?"；IPv6 可能绕过":"");
+   else snprintf(msg,sizeof(msg),"转发不完整：TCP %s，DNS %s；请重新启用代理",tcp?"已生效":"未生效",dns?"已生效":"未生效");
+  }else if(!strcmp(profile,"error"))snprintf(msg,sizeof(msg),"异常状态：转发可能被阻断%s，请检查出口",guard?"（失败保护已生效）":"");
+  else snprintf(msg,sizeof(msg),"%s：未接管上网，仅核心运行",!strcmp(profile,"tailscale")?"Tailscale 出口":"当前直连");
+  int covered=!strcmp(profile,"clash")&&tcp&&dns;
+  cJSON_Delete(v);
+  return reply(covered,msg);
  }else if(!strcmp(action,"clash.provider")||!strcmp(action,"clash.rule_provider")){
   const char *name=jstr(args,"name");if(!*name||strlen(name)>512)return reply(0,"订阅名称无效");cc_urlenc(name,enc,sizeof(enc));snprintf(path,sizeof(path),"/providers/%s/%s",!strcmp(action,"clash.provider")?"proxies":"rules",enc);ok=cc_write("PUT",path,NULL);if(ok){j=cc_get(path);ok=j!=NULL;cJSON_Delete(j);}
  }else if(!strcmp(action,"clash.close_connections")){

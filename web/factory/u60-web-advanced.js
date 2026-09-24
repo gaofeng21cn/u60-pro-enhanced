@@ -7,7 +7,20 @@ define(['jquery','u60-web-model'],function($,m){
  function form(label,action,args,fields,reason){return {label:label,type:'form',action:action,args:args,fields:fields,reason:reason,confirm:true,enabled:true};}
  function card(title){return n('section','u60-card u60-wide-card').append(n('h3','u60-card-title',title));}
  function date(v){if(!v||String(v).startsWith('0001'))return '—';var d=new Date(v);return isNaN(d.getTime())?String(v):d.toLocaleString('zh-CN',{hour12:false});}
+ function expiry(v){var s=Number(v);if(!isFinite(s)||s<=0)return '';if(s>1e12)s=s/1000;return date(new Date(s*1000));}
+ function profileLabel(p){return {clash:'Clash 代理',direct:'直连',tailscale:'Tailscale 出口',error:'异常 · 转发已阻断'}[p]||p||'未知';}
+ function pathOf(data){var head=data.mode==='global'?'GLOBAL':'MATCH',path=(data.active_path||[]).slice();if(!path.length)return '';return head+' → '+path.join(' → ')+(data.active_node?' → '+data.active_node:'');}
  function row(title,value){return n('div','u60-setting').append(n('span','u60-setting-label',title),n('span','u60-setting-value',value));}
+ function coverage(data,api){
+  var box=card('代理状态'),body=n('div','u60-card-body').appendTo(box);
+  body.append(row('Mihomo 核心',data.core_online?'运行中':data.online?'接口异常':'未运行'));
+  body.append(row('上网接管',data.takeover?'已接管 IPv4 TCP 与 DNS':'未接管 · 当前出口 '+profileLabel(data.profile)));
+  body.append(row('分流模式',{rule:'规则分流',global:'全局代理',direct:'旧直连模式'}[data.mode]||m.readable(data.mode)));
+  var path=pathOf(data);if(path)body.append(row('流量路径',path));
+  body.append(n('p','u60-help','UDP 与 IPv6 不经过代理；UDP 443 被拒绝以避免静默直连。'));
+  body.append(button('代理覆盖自检',function(){api.open(act('代理覆盖自检','web.clash.diagnose',{},false));},'u60-primary'));
+  return box;
+ }
  function subscriptions(data,api){
   var box=card('订阅管理'),body=n('div','u60-card-body').appendTo(box);body.append(n('p','u60-help','新增后保持当前节点。订阅链接仅在 U60 本机保存，列表不显示完整链接。'));
   function edit(p){var creating=!p,groups=(data.destination_groups||[]).map(function(x){return {label:x,value:x};}),fields=[];
@@ -17,14 +30,18 @@ define(['jquery','u60-web-model'],function($,m){
    api.open(form(creating?'新增订阅':'编辑 '+p.name,'web.clash.subscription_save',{existing:creating?'':p.name,name:creating?'':p.name,revision:data.revision},fields,'保存前会校验配置，并验证订阅能够加载节点；失败自动回退。新订阅不会自动切换当前节点。'));
   }
   body.append(button('＋ 新增订阅',function(){edit(null);},'u60-primary'));
-  (data.providers||[]).forEach(function(p){var entry=n('div','u60-provider');entry.append(n('div','u60-provider-heading').append(n('strong','',p.name),n('span','u60-badge',(p.count||0)+' 个节点')));entry.append(n('p','u60-help',(p.host||'未读取来源')+' · 每 '+p.interval+' 秒更新'));entry.append(n('small','u60-help','最近更新：'+date(p.updated)));
-   var usage=p.usage||{};if(usage.Total||usage.total){var total=usage.Total||usage.total,used=(usage.Upload||usage.upload||0)+(usage.Download||usage.download||0);entry.append(n('p','u60-help','用量 '+m.bytes(used,false)+' / '+m.bytes(total,false)));}
+  (data.providers||[]).forEach(function(p){var entry=n('div','u60-provider'),usage=p.usage||{},total=usage.Total||usage.total,expire=expiry(usage.Expire||usage.expire);
+   var updated=Date.parse(p.updated||''),stale=isFinite(updated)&&p.interval>0&&Date.now()-updated>p.interval*2000;
+   entry.append(n('div','u60-provider-heading').append(n('strong','',p.name),n('span','u60-badge',(p.count||0)+' 个节点')));entry.append(n('p','u60-help',(p.host||'未读取来源')+' · 每 '+p.interval+' 秒更新'));entry.append(n('small','u60-help','最近更新：'+date(p.updated)+(stale?' · 已超过两个更新周期，节点可能过期':'')+(!total?' · 用量未提供':'')));
+   if(total){var used=(usage.Upload||usage.upload||0)+(usage.Download||usage.download||0);entry.append(n('p','u60-help','用量 '+m.bytes(used,false)+' / '+m.bytes(total,false)+(expire?' · 到期 '+expire:'')));}
+   else if(expire)entry.append(n('p','u60-help','到期 '+expire));
    var actions=n('div','u60-inline-actions').append(button('更新',function(){api.open(act('更新 '+p.name,'clash.provider',{name:p.name},false));}),button('编辑',function(){edit(p);}),button('删除',function(){var a=act('删除订阅 '+p.name,'web.clash.subscription_delete',{name:p.name,revision:data.revision});a.reason='正在被选中的订阅会拒绝删除；可先切换到其他节点。';api.open(a);},'u60-small-button u60-danger'));entry.append(actions);body.append(entry);
   });if(!(data.providers||[]).length)body.append(n('p','u60-help','尚未配置订阅。'));return box;
  }
  function nodes(data,api){
   var box=card('策略组与节点'),body=n('div','u60-card-body').appendTo(box),groups=data.groups||[],options=n('select','u60-input').attr('aria-label','策略组');
-  groups.forEach(function(g){var leafCount=m.selectableNodes(g).length,label=g.name+' · '+(g.selected||g.type);if(g.name===data.active_group)label+=' · 当前流量使用';if(leafCount!==(g.nodes||[]).length)label+=' · '+leafCount+' 个可选节点';options.append(n('option','',label).val(g.name));});if(!groups.some(function(g){return g.name===nodeGroup&&m.selectableNodes(g).length>0;}))nodeGroup=(m.defaultNodeGroup(groups,data.active_group)||{}).name||'';options.val(nodeGroup);body.append(options);if(data.active_group)body.append(n('p','u60-help','当前代理流量使用的策略组：'+data.active_group+'。修改其他策略组不会影响当前这条流量路径。'));
+  groups.forEach(function(g){var leafCount=m.selectableNodes(g).length,label=g.name+' · '+(g.selected||g.type);if(g.name===data.active_group)label+=' · 当前流量使用';if(leafCount!==(g.nodes||[]).length)label+=' · '+leafCount+' 个可选节点';options.append(n('option','',label).val(g.name));});if(!groups.some(function(g){return g.name===nodeGroup&&m.selectableNodes(g).length>0;}))nodeGroup=(m.defaultNodeGroup(groups,data.active_group)||{}).name||'';options.val(nodeGroup);body.append(options);
+  var route=pathOf(data);body.append(n('p','u60-help',route?'当前流量路径：'+route+'。修改其他策略组不会影响这条路径。':'当前流量路径未确认；请先确认分流模式和代理规则。'));
   var search=n('input','u60-input').attr({type:'search',placeholder:'搜索节点', 'aria-label':'搜索节点'}).val(query),list=n('div','u60-node-list');body.append(search,list);
   function render(){list.empty();var group=groups.filter(function(g){return g.name===nodeGroup;})[0];if(!group){list.append(n('p','u60-help','Clash 尚未提供策略组'));return;}
    var selectable=m.selectableNodes(group),nested=(group.nodes||[]).length-selectable.length;list.append(n('p','u60-help','当前：'+m.readable(group.selected)+' · '+group.type+(nested>0?' · '+nested+' 个子策略组':'')));
@@ -45,7 +62,7 @@ define(['jquery','u60-web-model'],function($,m){
  function connections(data,api){var box=card('实时连接 · '+(data.connection_count||0)),body=n('div','u60-card-body').appendTo(box),search=n('input','u60-input').attr({type:'search',placeholder:'搜索设备、域名、IP、规则或节点','aria-label':'搜索连接'}),list=n('div','u60-connections');body.append(search,button('断开全部连接',function(){api.open(act('断开全部连接','clash.close_connections',{}));}),list);
   function show(){list.empty();var q=search.val().toLowerCase();(data.connections||[]).filter(function(c){return [c.host,c.source,c.destination,c.rule,c.rule_payload,(c.chains||[]).join(' ')].join(' ').toLowerCase().includes(q);}).forEach(function(c){var entry=n('div','u60-provider');entry.append(n('strong','u60-rule-text',c.host||c.destination),n('p','u60-help',c.source+' → '+c.destination+':'+c.port+' · '+c.network),n('p','u60-help',c.rule+' · '+(c.rule_payload||'')+' → '+(c.chains||[]).join(' → ')),n('p','u60-help','↓ '+m.bytes(c.download,false)+'  ↑ '+m.bytes(c.upload,false)),button('断开此连接',function(){api.open(act('断开 '+(c.host||c.destination),'web.clash.connection_close',{id:c.id}));}));list.append(entry);});}search.on('input',show);show();return box;
  }
- function clash(data,api){var wrap=n('div','u60-advanced'),nav=n('nav','u60-subtabs').attr('aria-label','Clash 高级功能'),body=n('div');wrap.append(nav,body);[['subscriptions','订阅'],['nodes','节点'],['rules','规则'],['connections','连接']].forEach(function(t){nav.append(button(t[1],function(){subtab=t[0];render();},'u60-subtab').attr('data-subtab',t[0]));});function render(){nav.children().each(function(){$(this).toggleClass('active',$(this).attr('data-subtab')===subtab);});body.empty().append(({subscriptions:subscriptions,nodes:nodes,rules:rules,connections:connections}[subtab]||subscriptions)(data,api));}render();return wrap;}
+ function clash(data,api){var wrap=n('div','u60-advanced'),nav=n('nav','u60-subtabs').attr('aria-label','Clash 高级功能'),body=n('div');wrap.append(coverage(data,api),nav,body);[['subscriptions','订阅'],['nodes','节点'],['rules','规则'],['connections','连接']].forEach(function(t){nav.append(button(t[1],function(){subtab=t[0];render();},'u60-subtab').attr('data-subtab',t[0]));});function render(){nav.children().each(function(){$(this).toggleClass('active',$(this).attr('data-subtab')===subtab);});body.empty().append(({subscriptions:subscriptions,nodes:nodes,rules:rules,connections:connections}[subtab]||subscriptions)(data,api));}render();return wrap;}
  function tailscale(data,api){var wrap=n('div','u60-advanced'),info=card('账号与组网状态'),body=n('div','u60-card-body').appendTo(info);wrap.append(info);
   [['主机名',data.hostname],['组网域名',data.dns_name],['Tailnet',data.tailnet],['版本',data.version],['本机地址',(data.ips||[]).join(' · ')],['密钥到期',date(data.key_expiry)]].forEach(function(x){body.append(row(x[0],x[1]));});
   var health=data.health||[];body.append(n('p','u60-help',health.length?health.join('\n'):'当前没有健康告警'));
