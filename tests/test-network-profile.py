@@ -41,7 +41,14 @@ if [ -s "$MOCK_FAIL" ] && grep -F -q -- "$(cat "$MOCK_FAIL")" <<EOF
 $*
 EOF
 then exit 1; fi
-case " $* " in *" -D "*|*" -C "*|*" -F "*|*" -X "*|*" -L "*) exit 1;; esac
+case " $* " in
+ *" -C "*)
+  # Answer presence checks from MOCK_RULES so verify receipts can be exercised.
+  line="$*"
+  if [ -s "$MOCK_RULES" ] && grep -F -q -- "${line#*-C }" "$MOCK_RULES"; then exit 0; fi
+  exit 1;;
+ *" -D "*|*" -F "*|*" -X "*|*" -L "*) exit 1;;
+esac
 exit 0
 ''')
         self._cmd("ip6tables", r'''#!/bin/sh
@@ -116,6 +123,7 @@ printf 401
             TAILSCALE_CLI=str(self.bin / "tailscale"),
             JSONFILTER=str(self.bin / "jsonfilter"),
             MOCK_LOG=str(self.log), MOCK_FAIL=str(self.fail),
+            MOCK_RULES=str(self.root / "rules"),
             MOCK_ROUTES=str(self.routes), MOCK_EXIT=str(self.exit_file),
             MOCK_PROC=str(self.root / "proc"), MOCK_CLASH=str(clash / "mihomo"),
             PATH=f"{self.bin}:{os.environ['PATH']}")
@@ -162,6 +170,46 @@ class NetworkProfileTests(unittest.TestCase):
 
     def test_status_receipt_matches_controller_contract(self):
         r=self.h.run('status');self.assertEqual(r.returncode,0);self.assertTrue(json.loads(r.stdout)['ok'])
+
+    def test_verify_is_read_only_and_reports_actual_coverage(self):
+        rules = self.h.root / "rules"
+        (self.h.state / "network-profile").write_text("clash\n")
+        r = self.h.run("verify")
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        body = json.loads(r.stdout)
+        self.assertEqual(body["profile"], "clash")
+        self.assertEqual(body["clash_scope"], "ipv4_tcp_and_dns_limited")
+        self.assertFalse(body["udp_proxy"]); self.assertFalse(body["ipv6_proxy"])
+        self.assertFalse(body["redirect"]["prerouting_tcp"])
+        self.assertFalse(body["redirect"]["dns"])
+        self.assertFalse(body["redirect"]["udp443_reject"])
+        self.assertFalse(body["redirect"]["ipv6_redirect"])
+        # A read-only receipt must not mutate state, take the lock or rewrite rules.
+        self.assertEqual((self.h.state / "network-profile").read_text().strip(), "clash")
+        self.assertFalse((self.h.root / "lock").exists())
+        self.assertFalse(rules.exists())
+        commands = self.h.log.read_text()
+        self.assertNotIn("-A ", commands)
+        self.assertNotIn("-I ", commands)
+        self.assertNotIn("-D ", commands)
+        rules.write_text("PREROUTING -i br-lan -p tcp -j U60_CLASH\n"
+                         "PREROUTING -i br-lan -p udp --dport 53 -j U60_CLASH_DNS\n"
+                         "PREROUTING -i br-lan -p tcp --dport 53 -j U60_CLASH_DNS\n"
+                         "FORWARD -i br-lan ! -o tailscale0 -p udp --dport 443 -j REJECT --reject-with icmp-port-unreachable\n")
+        r = self.h.run("verify")
+        body = json.loads(r.stdout)
+        self.assertTrue(body["redirect"]["prerouting_tcp"])
+        self.assertTrue(body["redirect"]["dns"])
+        self.assertTrue(body["redirect"]["udp443_reject"])
+        self.assertFalse(body["redirect"]["guard"])
+        self.assertFalse(body["ipv6_default_route"])
+        self.h.routes.write_text("default via fe80::1 dev wwan0 proto ra\n")
+        body = json.loads(self.h.run("verify").stdout)
+        self.assertTrue(body["ipv6_default_route"])
+        (self.h.state / "network-profile").write_text("direct\n")
+        body = json.loads(self.h.run("verify").stdout)
+        self.assertEqual(body["profile"], "direct")
+        self.assertTrue(body["redirect"]["prerouting_tcp"])
 
     def test_clash_does_not_depend_on_tailnet_control_connection(self):
         (self.h.net / 'tailscale0').mkdir()

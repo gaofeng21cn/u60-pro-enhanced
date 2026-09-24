@@ -34,7 +34,7 @@ class Test(unittest.TestCase):
   cls.server=http.server.HTTPServer(('127.0.0.1',0),API)
   (cls.p/'mihomo').write_text('#!/bin/sh\n[ ! -e "'+str(cls.p/'reject')+'" ]\n');(cls.p/'mihomo').chmod(0o700)
   wrapper=cls.p/'wrapper.c';wrapper.write_text('#define main backend_main\n#include "'+str(ROOT/'panel/panel-control.c')+'"\n#undef main\nint main(void){char in[8192];size_t n=fread(in,1,sizeof(in)-1,stdin);in[n]=0;cJSON*r=cJSON_Parse(in),*o;if(!strcmp(jstr(r,"action"),"state")){o=cJSON_CreateObject();control_clash_sections(o);}else if(!strcmp(jstr(r,"action"),"test_proxy")){char proxy[180];o=reply(cc_quota_proxy(proxy,sizeof(proxy)),"test");if(cJSON_IsTrue(jget(o,"ok")))cJSON_AddStringToObject(o,"proxy",proxy);}else o=control_clash_action(jstr(r,"action"),jget(r,"args"));char*s=cJSON_PrintUnformatted(o);puts(s?s:"{}");free(s);cJSON_Delete(o);cJSON_Delete(r);return 0;}')
-  cls.bin=cls.p/'test';subprocess.run(['cc','-D_GNU_SOURCE',f'-DCC_ROOT="{cls.p}"',f'-DCC_API_PORT={cls.server.server_port}','-Wno-unused-function','-I'+str(ROOT/'panel/vendor'),str(wrapper),str(ROOT/'panel/vendor/cJSON.c'),'-lm','-o',str(cls.bin)],check=True,capture_output=True)
+  cls.bin=cls.p/'test';subprocess.run(['cc','-D_GNU_SOURCE',f'-DCC_ROOT="{cls.p}"',f'-DCC_API_PORT={cls.server.server_port}',f'-DCC_PROFILE_SCRIPT="{cls.p}/network-profile.sh"','-Wno-unused-function','-I'+str(ROOT/'panel/vendor'),str(wrapper),str(ROOT/'panel/vendor/cJSON.c'),'-lm','-o',str(cls.bin)],check=True,capture_output=True)
   cls.t=threading.Thread(target=cls.server.serve_forever,daemon=True);cls.t.start()
  @classmethod
  def tearDownClass(cls):cls.server.shutdown();cls.server.server_close();cls.temp.cleanup()
@@ -51,6 +51,30 @@ class Test(unittest.TestCase):
  def test_quota_invalid_listener_not_used(self):
   for port,bind in [('0','127.0.0.1'),('70000','127.0.0.1'),('7890','invalid.example')]:
    (self.p/'config.yaml').write_text(f'mixed-port: {port}\nbind-address: "{bind}"\n');self.assertFalse(self.call('test_proxy')['ok'])
+ def verify_script(self,payload):
+  p=self.p/'network-profile.sh';p.write_text("#!/bin/sh\nprintf '%s\\n' '"+json.dumps(payload)+"'\n");p.chmod(0o755);return p
+ def test_coverage_item_separates_serving_from_takeover(self):
+  self.node_fixture()
+  items=self.call('state')['sections'][0]['items']
+  coverage=[i for i in items if i['id']=='coverage']
+  self.assertEqual(len(coverage),1);self.assertEqual(coverage[0]['type'],'info');self.assertIn('未接管',coverage[0]['value'])
+  self.assertEqual(len([i for i in items if i['id']=='scope' and 'UDP' in i['value']]),1)
+  diagnose=[i for i in items if i.get('action')=='clash.diagnose']
+  self.assertEqual(len(diagnose),1);self.assertFalse(diagnose[0]['confirm'])
+ def test_diagnose_reports_serving_and_interception_separately(self):
+  self.verify_script({'ok':True,'profile':'clash','redirect':{'prerouting_tcp':True,'dns':True,'udp443_reject':True,'guard':False},'ipv6_default_route':True})
+  r=self.call('clash.diagnose')
+  self.assertTrue(r['ok'],r);self.assertIn('已接管 IPv4 TCP 与 DNS',r['message']);self.assertIn('UDP 443 已拒绝',r['message']);self.assertIn('IPv6 可能绕过',r['message'])
+ def test_diagnose_refuses_partial_direct_and_error_profiles(self):
+  self.verify_script({'ok':True,'profile':'clash','redirect':{'prerouting_tcp':True,'dns':False,'udp443_reject':True,'guard':False},'ipv6_default_route':False})
+  r=self.call('clash.diagnose');self.assertFalse(r['ok']);self.assertIn('DNS 未生效',r['message'])
+  self.verify_script({'ok':True,'profile':'direct','redirect':{},'ipv6_default_route':False})
+  r=self.call('clash.diagnose');self.assertFalse(r['ok']);self.assertIn('未接管上网',r['message'])
+  self.verify_script({'ok':True,'profile':'error','redirect':{'guard':True},'ipv6_default_route':False})
+  r=self.call('clash.diagnose');self.assertFalse(r['ok']);self.assertIn('失败保护已生效',r['message'])
+ def test_diagnose_without_coverage_helper_does_not_claim_success(self):
+  (self.p/'network-profile.sh').unlink(missing_ok=True)
+  r=self.call('clash.diagnose');self.assertFalse(r['ok']);self.assertIn('自检脚本不可用',r['message'])
  def test_single_node_entry_per_mode_and_no_builtin_choices(self):
   self.node_fixture()
   for mode,group in [('rule','示例分组B'),('global','示例分组A')]:

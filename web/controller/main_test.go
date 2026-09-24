@@ -218,6 +218,12 @@ func TestNodeStateFollowsNestedActiveSelector(t *testing.T) {
 	if text(s["active_group"]) != "Mojie" {
 		t.Fatalf("active leaf group = %v", s["active_group"])
 	}
+	if got := arr(s["active_path"]); len(got) != 2 || got[0] != "Main" || got[1] != "Mojie" {
+		t.Fatalf("active path = %v", got)
+	}
+	if text(s["active_node"]) != "Leaf 02" || !boolv(s["core_online"]) || text(s["mode"]) != "rule" {
+		t.Fatalf("state = %v", s)
+	}
 	groups := arr(s["groups"])
 	var main, mojie M
 	for _, raw := range groups {
@@ -288,6 +294,113 @@ func TestSelectProxyValidatesMembershipAndReadsBack(t *testing.T) {
 	r = a.dispatch(Request{Action: "web.clash.select", Args: M{"group": "Main", "name": "Missing"}})
 	if boolv(r["ok"]) || len(calls) != 1 || calls[0] != "GET /proxies/Main" {
 		t.Fatalf("unknown node reached a write: result=%v calls=%v", r, calls)
+	}
+}
+
+func TestClashStateReportsProfileTakeover(t *testing.T) {
+	a := testApp(t)
+	dir := t.TempDir()
+	a.panelDir = dir
+	if s := a.clashState(); text(s["profile"]) != "direct" || boolv(s["takeover"]) {
+		t.Fatalf("default profile = %v", s)
+	}
+	os.WriteFile(filepath.Join(dir, "network-profile"), []byte("clash\n"), 0600)
+	if s := a.clashState(); !boolv(s["takeover"]) || text(s["profile"]) != "clash" {
+		t.Fatalf("takeover not reported: %v", s)
+	}
+	os.WriteFile(filepath.Join(dir, "network-profile"), []byte("nonsense\n"), 0600)
+	if s := a.clashState(); boolv(s["takeover"]) || text(s["profile"]) != "direct" {
+		t.Fatalf("unknown profile must not claim takeover: %v", s["profile"])
+	}
+}
+
+func diagnoseLines(t *testing.T, r M) string {
+	t.Helper()
+	if !boolv(r["ok"]) {
+		t.Fatalf("diagnose failed: %v", r)
+	}
+	report := obj(r["report"])
+	if text(report["title"]) != "代理覆盖自检" {
+		t.Fatalf("report = %v", report)
+	}
+	parts := []string{}
+	for _, line := range arr(report["lines"]) {
+		parts = append(parts, text(line))
+	}
+	return strings.Join(parts, "\n")
+}
+
+func TestClashDiagnoseReportsActualCoverage(t *testing.T) {
+	a := testApp(t)
+	dir := t.TempDir()
+	a.panelDir = dir
+	a.testAPI = func(method, path string, data any) (M, error) {
+		switch path {
+		case "/version":
+			return M{"version": "v1.19.31"}, nil
+		case "/configs":
+			return M{"mode": "rule"}, nil
+		case "/rules":
+			return M{"rules": []any{M{"type": "Match", "proxy": "Main"}}}, nil
+		case "/proxies":
+			return M{"proxies": M{
+				"Main":    M{"type": "Selector", "all": []any{"Mojie"}, "now": "Mojie"},
+				"Mojie":   M{"type": "Selector", "all": []any{"Leaf 01"}, "now": "Leaf 01"},
+				"Leaf 01": M{"type": "Vless"},
+			}}, nil
+		}
+		return M{}, nil
+	}
+	script := filepath.Join(dir, "network-profile.sh")
+	os.WriteFile(filepath.Join(dir, "network-profile"), []byte("clash\n"), 0600)
+	os.WriteFile(script, []byte(`#!/bin/sh
+printf '%s\n' '{"ok":true,"profile":"clash","redirect":{"prerouting_tcp":true,"dns":true,"udp443_reject":true,"guard":false,"ipv6_redirect":false},"ipv6_default_route":true}'
+`), 0700)
+	lines := diagnoseLines(t, a.clashDiagnose())
+	for _, want := range []string{
+		"核心：运行中 · v1.19.31",
+		"接管：已启用 Clash 出口",
+		"转发规则：TCP 已生效 · DNS 已生效 · UDP 443 拒绝 已生效",
+		"IPv6：未代理，但存在 IPv6 默认路由",
+		"UDP：未代理",
+		"当前路径：MATCH → Main → Mojie → Leaf 01",
+	} {
+		if !strings.Contains(lines, want) {
+			t.Fatalf("missing %q in\n%s", want, lines)
+		}
+	}
+	if strings.Contains(lines, "失败保护") {
+		t.Fatal("guard reported without evidence")
+	}
+	os.WriteFile(script, []byte(`#!/bin/sh
+printf '%s\n' '{"ok":true,"profile":"clash","redirect":{"prerouting_tcp":true,"dns":false,"udp443_reject":true,"guard":true,"ipv6_redirect":false},"ipv6_default_route":false}'
+`), 0700)
+	lines = diagnoseLines(t, a.clashDiagnose())
+	if !strings.Contains(lines, "失败保护：正在阻断经过本机的转发") {
+		t.Fatalf("fail-closed guard not reported:\n%s", lines)
+	}
+	if !strings.Contains(lines, "DNS 未确认") || !strings.Contains(lines, "\nIPv6：未代理\n") {
+		t.Fatalf("partial coverage not reported:\n%s", lines)
+	}
+	os.WriteFile(script, []byte("#!/bin/sh\nexit 3\n"), 0700)
+	lines = diagnoseLines(t, a.clashDiagnose())
+	if !strings.Contains(lines, "转发规则：无法核验") || strings.Contains(lines, "IPv6：未代理，但存在") {
+		t.Fatalf("missing verifier not reported honestly:\n%s", lines)
+	}
+}
+
+func TestClashDiagnoseSeparatesCoreFromDirectProfile(t *testing.T) {
+	a := testApp(t)
+	a.panelDir = t.TempDir()
+	a.testAPI = func(method, path string, data any) (M, error) {
+		return M{}, errors.New("core down")
+	}
+	lines := diagnoseLines(t, a.clashDiagnose())
+	if !strings.Contains(lines, "核心：未运行") || !strings.Contains(lines, "接管：未启用，当前直连") {
+		t.Fatalf("stopped core reported as takeover:\n%s", lines)
+	}
+	if !strings.Contains(lines, "当前路径：未确认") {
+		t.Fatalf("unknown path reported as known:\n%s", lines)
 	}
 }
 

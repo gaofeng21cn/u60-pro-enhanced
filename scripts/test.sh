@@ -8,7 +8,7 @@ for source in tests/test-theme.c tests/test-menu-layout.c tests/test-advanced-co
  "build/tests/$name"
 done
 for source in tests/test-*.py tests/control-test.py;do python3 "$source";done
-node tests/test-web-model.js
+for source in tests/test-web-*.js;do node "$source";done
 (cd web/controller; go test ./...)
 for source in panel/*.sh scripts/*.sh scripts/portable/*.sh;do sh -n "$source";done
 echo 'PASS: host regression suite (not a substitute for new-device physical tests)'

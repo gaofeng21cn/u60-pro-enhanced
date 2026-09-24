@@ -257,6 +257,21 @@ status)
 	printf '{"ok":true,"profile":"%s","clash_scope":"ipv4_tcp_and_dns_limited","udp_proxy":false,"ipv6_proxy":false,"tailscale_tun":%s}\n' "$p" "$tun"
 	exit 0
 	;;
+verify)
+	# Read-only coverage receipt. Never writes state, never takes the profile lock.
+	p=$(read_state)
+	tcp=false; dns=false; reject=false; guard=false; v6rules=false; v6route=false
+	"$IPT" -t nat -C PREROUTING -i br-lan -p tcp -j U60_CLASH >/dev/null 2>&1 && tcp=true
+	if "$IPT" -t nat -C PREROUTING -i br-lan -p udp --dport 53 -j U60_CLASH_DNS >/dev/null 2>&1 &&
+		"$IPT" -t nat -C PREROUTING -i br-lan -p tcp --dport 53 -j U60_CLASH_DNS >/dev/null 2>&1; then dns=true; fi
+	"$IPT" -C FORWARD -i br-lan ! -o tailscale0 -p udp --dport 443 -j REJECT --reject-with icmp-port-unreachable >/dev/null 2>&1 && reject=true
+	"$IPT" -C FORWARD -i br-lan -j U60_PANEL_GUARD >/dev/null 2>&1 && guard=true
+	if command -v "$IP6T" >/dev/null 2>&1 && "$IP6T" -t nat -C PREROUTING -i br-lan -j U60_CLASH6 >/dev/null 2>&1; then v6rules=true; fi
+	"$IP" -6 route show default 2>/dev/null | grep -Eq '^default' && v6route=true
+	printf '{"ok":true,"profile":"%s","clash_scope":"ipv4_tcp_and_dns_limited","udp_proxy":false,"ipv6_proxy":false,"redirect":{"prerouting_tcp":%s,"dns":%s,"udp443_reject":%s,"guard":%s,"ipv6_redirect":%s},"ipv6_default_route":%s}\n' \
+		"$p" "$tcp" "$dns" "$reject" "$guard" "$v6rules" "$v6route"
+	exit 0
+	;;
 clash|direct|tailscale|clash-start|clash-enable|clash-stop|standby-resume) ;;
 *) say '{"ok":false,"error":"invalid_action"}'; exit 2;;
 esac
