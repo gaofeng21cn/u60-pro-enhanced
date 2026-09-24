@@ -90,6 +90,7 @@ adb shell sh /data/u60-panel/setup-clash.sh
 - 单击电源键亮屏或熄屏。
 - 双击电源键在增强界面和原厂界面之间切换。
 - 在增强界面的网络页查看代理、上游和出口状态；在 Clash 页切换模式、策略组和节点。
+- Clash 页的代理状态会分别显示核心运行和流量接管；“代理覆盖自检”会回读 IPv4 TCP、DNS、UDP 443 拒绝和 IPv6 默认路由提示。
 - 长按电源键打开原厂电源菜单。原厂“重启”在部分设备上可能表现为关机，设备旁操作并按原厂方式重新开机。
 
 ### 原厂网页
@@ -117,7 +118,6 @@ adb shell sh /data/u60-panel/setup-clash.sh
 | --- | --- |
 | 第一次安装和初始化 | [安装与首次配置](docs/INSTALL.md) |
 | 日常切换和功能操作 | [使用与切换](docs/USAGE.md) |
-| 已验证范围和已知限制 | [验证范围与风险](docs/VALIDATION.md) |
 | 回退和保留数据 | [回退与保留数据](docs/RECOVERY.md) |
 | Wi-Fi 中继细节 | [Wi-Fi 中继说明](docs/WIFI-RELAY.md) |
 | 社区来源和第三方许可 | [第三方声明](THIRD_PARTY_NOTICES.md) |
