@@ -4,6 +4,35 @@ set -eu
 umask 077
 [ "$(id -u)" = 0 ]
 cd /data/u60-clash
+# Existing installations explicitly opt in; updates never rewrite private config.
+if [ "${1:-}" = --enable-ntp ];then
+ exec 7>/tmp/u60-control.lock;flock -n 7 || { echo 'Another operation is running';exit 2; }
+ [ -s config.yaml ] && [ -x mihomo ] || exit 1
+ if grep -Eq '^ntp[[:space:]]*:' config.yaml;then
+  echo 'NTP configuration already exists; retained it. Review enable, dialer-proxy and write-to-system in your private config.';exit 0
+ fi
+ backup="config-before-ntp-$(date +%s)-$$.private"
+ cp -p config.yaml "$backup"
+ trap 'rm -f config.yaml.ntp-next /tmp/u60-ntp-reply.$$' EXIT
+ cat config.yaml > config.yaml.ntp-next
+ printf '\nntp:\n  enable: true\n  server: time.apple.com\n  port: 123\n  interval: 30\n  dialer-proxy: DIRECT\n  write-to-system: false\n' >> config.yaml.ntp-next
+ ./mihomo -t -d /data/u60-clash -f /data/u60-clash/config.yaml.ntp-next >/dev/null 2>&1 || { echo 'Invalid candidate; original config retained';exit 1; }
+ # Load only the local controller credential; never print or pass it in argv.
+ secret=$(sed -n 's/^secret: *//p' config.yaml | tr -d '\"\047\r\n ')
+ [ -n "$secret" ] || { echo 'Controller credential unavailable';exit 1; }
+ reload() {
+  printf 'header = "Authorization: Bearer %s"\n' "$secret" |
+   curl -q -sS --noproxy '*' -K - --max-time 15 -X PUT -H 'Content-Type: application/json' --data '{"path":"/data/u60-clash/config.yaml"}' -o /tmp/u60-ntp-reply.$$ -w '%{http_code}' 'http://127.0.0.1:19090/configs?force=true'
+ }
+ [ "$(sha256sum config.yaml | cut -d ' ' -f 1)" = "$(sha256sum "$backup" | cut -d ' ' -f 1)" ] || { echo 'Configuration changed; candidate not applied';exit 1; }
+ mv config.yaml.ntp-next config.yaml
+ code=$(reload) || code=000
+ case "$code" in 200|204) echo 'Mihomo NTP enabled without changing the system clock; verify real requests after synchronization.';;
+ *) cp -p "$backup" config.yaml.ntp-next;mv config.yaml.ntp-next config.yaml;code=$(reload) || code=000
+    case "$code" in 200|204) echo 'Reload failed; original configuration restored';; *) echo 'Original file restored but runtime rollback unconfirmed';; esac;exit 1;; esac
+ exit 0
+fi
+[ "$#" = 0 ] || { echo 'Usage: setup-clash.sh [--enable-ntp]';exit 2; }
 [ ! -e config.yaml ] || { echo 'Configuration already exists; nothing changed.';exit 1; }
 [ -x mihomo ] && [ -s config.example.yaml ]
 secret=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')

@@ -2,7 +2,7 @@
 
 为中兴 U60 Pro（MU5250）国行 **B28 / B31** 提供原生小屏界面、原厂网页增强、Clash/Mihomo、Tailscale、Wi-Fi 接力与 USB 网口管理。保留原厂固件和管理页，双击电源键可切换界面。
 
-**当前版本：[v0.1.4-experimental](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.4-experimental)**。这是实验版：支持固件检查和设备身份绑定，不代表全部网络与硬件组合已经验收。安装前请阅读[验证范围](docs/VALIDATION.md)。
+**当前版本：[v0.1.5-experimental](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.5-experimental)**。这是实验版：支持固件检查和设备身份绑定，不代表全部网络与硬件组合已经验收。安装前请阅读[验证范围](docs/VALIDATION.md)。
 
 ## 先确认你的设备
 
@@ -18,14 +18,14 @@
 
 ## 下载与准备
 
-下载本仓库 Release 中的 `u60-pro-enhanced-v0.1.4-experimental.tar.gz` 和 `SHA256SUMS.txt`，不要使用 GitHub 自动生成的 Source code 压缩包作为安装包。上游 B28 包不能用于 B31。
+下载本仓库 Release 中的 `u60-pro-enhanced-v0.1.5-experimental.tar.gz` 和 `SHA256SUMS.txt`，不要使用 GitHub 自动生成的 Source code 压缩包作为安装包。上游 B28 包不能用于 B31。
 
 macOS 示例（Linux 将 `shasum -a 256` 换成 `sha256sum`）：
 
 ```sh
 shasum -a 256 -c SHA256SUMS.txt
-tar -xzf u60-pro-enhanced-v0.1.4-experimental.tar.gz
-cd u60-pro-enhanced-v0.1.4-experimental
+tar -xzf u60-pro-enhanced-v0.1.5-experimental.tar.gz
+cd u60-pro-enhanced-v0.1.5-experimental
 adb devices
 python3 prepare.py
 ```
@@ -53,9 +53,9 @@ python3 deploy-from-computer.py start
 
 ```sh
 adb shell /etc/init.d/u60-web stop
-python3 prepare.py --output ../u60-prepared-private-v014
+python3 prepare.py --output ../u60-prepared-private-v015
 adb shell /etc/init.d/u60-web start
-cd ../u60-prepared-private-v014
+cd ../u60-prepared-private-v015
 python3 deploy-from-computer.py upgrade-check
 python3 deploy-from-computer.py upgrade
 ```
@@ -71,6 +71,8 @@ python3 deploy-from-computer.py upgrade
 - **Clash/Mihomo**：先执行 `adb shell sh /data/u60-panel/setup-clash.sh` 初始化本机配置，再在网页添加自己的 Mihomo proxy-provider 订阅、选择节点并开启代理。以“实际代理状态”为准；核心运行不等于流量已接管。当前代理覆盖 IPv4 TCP 与 DNS，UDP 443 拒绝以促使 TCP 回退，其他 UDP 与 IPv6 不宣称代理。
 - **Tailscale**：执行 `adb shell sh /data/u60-panel/setup-tailscale.sh`，在自己的浏览器完成登录。内网访问还需实际路由发布、后台批准及 ACL/Grant，不能只看本机在线。
 
+若节点握手失败且设备时间异常，参考[原厂时间与代理校时](docs/INSTALL.md#原厂时间与代理校时)。新配置默认启用核心内部 NTP；已有配置需显式迁移，系统时钟不改。
+
 详细步骤见[使用说明](docs/USAGE.md)。不要把管理端口映射到公网，不在 Issue 中发送密码、订阅、设备标识或私有安装目录。
 
 ## USB 与 Wi-Fi 接力分别能做什么
@@ -83,6 +85,8 @@ python3 deploy-from-computer.py upgrade
 | 上游 Wi-Fi → U60 → 自身热点或 LAN | 支持单个 2.4G／非 DFS 5G 上游、保存网络与同频段重连；不是 Mesh，不聚合两条 Wi-Fi 带宽 |
 
 Wi-Fi 接力入口为“小屏：网络 → Wi-Fi → 连接上游 Wi-Fi；网页：增强功能 → 网络”。密码可在小屏或已登录的网页输入；小屏提供独立字符页，连接失败后保留内存草稿供修改重试。要求 5G 主热点开启、访客热点关闭、USB 为 LAN；同频热点可能短暂断开重连。界面分别显示关联/出口和互联网探测，探测失败不自动改变出口。
+
+停止中继：总览点“中继管理 / 停止”，或“网络 → Wi-Fi”顶部点“停止 Wi-Fi 中继”；不会忘记上游密码。
 
 接力可选择开机连接、允许/禁止蜂窝回退，并在关闭后忘记保存的网络。禁止回退会在接力开启期间阻断本机代理和下游经蜂窝的 IPv4/IPv6 数据包，也可能使蜂窝远程管理断开；它不关闭基带，不保证整机零流量。关闭接力恢复原出口。当前只保存一个上游；多网络优先级、企业认证、DFS 与完整认证门户流程未提供。详见[Wi-Fi 接力说明](docs/WIFI-RELAY.md)。
 

@@ -18,6 +18,12 @@ static int menu_rank(cJSON *item){
 }
 static int menu_priority(cJSON *item,const char *section){
  if(!strcmp(menu_str(item,"id"),"menu.unavailable"))return 104;
+ if(!strcmp(section,"wifi")){
+  const char*id=menu_str(item,"id");
+  if(!strcmp(id,"relay"))return 0;
+  if(!strcmp(id,"relay-scan"))return 1;
+  if(!strcmp(id,"relay-health"))return 2;
+ }
  if(!strcmp(section,"clash")){
   static const char *const daily[]={"coverage","service","mode","node","favorite","recent","favorite-current","menu.clash-more"};
   for(int n=0;n<8;n++)if(!strcmp(menu_str(item,"id"),daily[n]))return n;

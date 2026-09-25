@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory() as td:
  data['relay.scan']['networks'].append({'ssid':'Test WiFi','bssid':'aa:bb:cc:dd:ee:fc','security':'WPA2','signal':-30,'frequency':2412})
  r=call('wifi.relay.scan');assert len(r['picker']['choices'])==2 and r['picker']['choices'][0]['label'].endswith('2.4G') and r['picker']['choices'][1]['label'].endswith('5G')
  r=call('state');s=next(x for x in r['sections']if x['id']=='wifi');assert s['items'][0]['id']=='relay' and s['items'][1]['id']=='relay-scan';assert s['items'][0]['type']=='info'
- data['relay.status'].update(enabled=True,active=True,saved=True,state='CONNECTED',frequency=2437);r=call('state');s=next(x for x in r['sections']if x['id']=='wifi');assert s['items'][0]['action']=='wifi.relay.off';assert s['items'][1]['id']=='relay-scan' and s['items'][1]['enabled'] and s['items'][1]['confirm'] is False;assert call('wifi.relay.scan')['ok'];assert r['data']['wifi_status']=='2.4G 上游中继'
+ data['relay.status'].update(enabled=True,active=True,saved=True,state='CONNECTED',frequency=2437);r=call('state');s=next(x for x in r['sections']if x['id']=='wifi');assert s['items'][0]['action']=='wifi.relay.off' and s['items'][0]['label']=='停止 Wi-Fi 中继' and s['items'][0]['confirm'];assert s['items'][1]['id']=='relay-scan' and s['items'][1]['enabled'] and s['items'][1]['confirm'] is False;assert call('wifi.relay.scan')['ok'];assert r['data']['wifi_status']=='2.4G 上游中继'
  assert 'password' not in json.dumps(r['data']['wifi_relay'])
  assert call('wifi.ap',{'section':'main_2g','enabled':True})['ok']
  assert not call('usb.role',{'role':'AUTO'})['ok']

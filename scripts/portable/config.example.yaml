@@ -10,6 +10,15 @@ ipv6: false
 external-controller: 127.0.0.1:19090
 external-ui: ./ui
 secret: ""
+# Stock B31 may store local time as UTC. Correct protocol time inside Mihomo;
+# never compete with the factory NITZ/clock owner or change its display timezone.
+ntp:
+  enable: true
+  server: time.apple.com
+  port: 123
+  interval: 30
+  dialer-proxy: DIRECT
+  write-to-system: false
 profile:
   store-selected: true
 tun:

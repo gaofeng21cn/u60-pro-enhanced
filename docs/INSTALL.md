@@ -23,7 +23,7 @@ macOS/Linux 使用终端；Windows 可用 Python 3 与 `adb.exe`，Windows 完�
 
 ### 从本仓库源码构建
 
-可下载本仓库 [v0.1.4-experimental 安装包](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.4-experimental)，下载用户不需要编译器。以下是开发者构建方式。构建依赖 Zig 0.14.1、Go、Python 3 和 Git，主机测试还需 C 编译器和 Node.js。**请显式使用 Zig 0.14.1**：0.16 会构建失败。
+可下载本仓库 [v0.1.5-experimental 安装包](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.5-experimental)，下载用户不需要编译器。以下是开发者构建方式。构建依赖 Zig 0.14.1、Go、Python 3 和 Git，主机测试还需 C 编译器和 Node.js。**请显式使用 Zig 0.14.1**：0.16 会构建失败。
 
 ```sh
 sh scripts/build.sh
@@ -42,7 +42,7 @@ python3 scripts/package.py
 先进入安装包目录。本仓库构建产物位于 `dist/u60-pro-enhanced-<版本>/`（构建后可用 `ls dist/` 查看实际目录名），使用上游 Release 时就是解压出来的同名目录。
 
 ```sh
-cd dist/u60-pro-enhanced-v0.1.4-experimental
+cd dist/u60-pro-enhanced-v0.1.5-experimental
 python3 prepare.py
 ```
 
@@ -95,6 +95,20 @@ adb shell sh /data/u60-panel/setup-clash.sh
 登录原厂网页 → 增强功能 → Clash，添加自己的 **Mihomo proxy-provider 格式**订阅，选择目标策略组、保存/更新。普通完整配置、Base64 分享链接或任意机场格式不保证直接兼容；不提供第三方在线转换服务。先选择节点，确认测速可用，再启用代理路由与规则模式。新增订阅不会自行切走当前节点。
 
 分别测试国内站点和需要代理的站点，并核查连接命中的策略；仅“网页打开”不足以证明命中预期规则。不要将管理端口映射到公网。初始 LAN 为原厂 `192.168.0.0/24`，自定义 LAN 地址需同时审核 Clash 绑定、DNS 和子网设置，当前没有自动迁移保证。
+
+### 原厂时间与代理校时
+
+正确的通用模型是系统 epoch 表示 UTC 时间，显示层按 `Asia/Shanghai` 转换为北京时间；时区不应改变 epoch。B31 实测可能将东八区本地时间写入系统 epoch，同时保持 `TZ=UTC`。小屏显示看似正确，但 VMess 握手会因约 8 小时偏差失败。仅修改 `TZ` 或只减去 8 小时都不能解决原厂 NITZ/NTP 后续写回的问题。
+
+首次配置默认启用 Mihomo 自带 NTP，使用 DIRECT 获取时间、只校正核心内部协议时间，`write-to-system: false`。这是与原厂固件兼容的协议修复，并未修正整机 epoch；保留原厂时钟和定时功能，不固定减去某个时区偏移，也不关闭 TLS 验证。需要能访问所配置 NTP 服务的 UDP 123；同步前或 NTP 不可达时，时间敏感节点仍可能失败。
+
+已有配置的用户可显式执行（升级程序本身不重写私人配置）：
+
+```sh
+adb shell sh /data/u60-panel/setup-clash.sh --enable-ntp
+```
+
+该命令只在尚无顶层 `ntp` 配置时追加设置，先备份和校验，再热加载；失败恢复原配置。已有 NTP 设置保持原样。待同步后重新请求目标站点；不以配置存在代替联网成功。
 
 ## Tailscale 首次使用
 

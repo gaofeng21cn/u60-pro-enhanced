@@ -58,7 +58,7 @@ static void relay_items(cJSON*s,cJSON*data){
  if(fixture&&!jget(fixture,"relay.status"))return;
  cJSON*r=relay_run("status",NULL);int known=cJSON_IsTrue(jget(r,"ok")),enabled=cJSON_IsTrue(jget(r,"enabled")),active=cJSON_IsTrue(jget(r,"active")),saved=cJSON_IsTrue(jget(r,"saved"));
  const char*state=jstr(r,"state"),*text=!known?"不可用":active?"Wi-Fi 上游":!enabled?"关闭":!strcmp(state,"CONFLICT")?"网段冲突 · 原出口":!strcmp(state,"POLICY")?"热点/USB冲突 · 原出口":!strcmp(state,"SERVICE_DOWN")?"协调服务未运行":!strcmp(state,"ERROR")?"故障 · 请查看策略":"未连通 · 原出口";
- cJSON*i=item(s,"relay","Wi-Fi 中继",enabled||saved?"action":"info",text,enabled?"wifi.relay.off":saved?"wifi.relay.on":"wifi.relay.scan",known,"同频热点会短暂重连；是否回退蜂窝与开机连接由下方策略决定。");cJSON_ReplaceItemInObject(i,"confirm",cJSON_CreateBool(enabled||saved));
+ cJSON*i=item(s,"relay",enabled?"停止 Wi-Fi 中继":saved?"启动 Wi-Fi 中继":"Wi-Fi 中继",enabled||saved?"action":"info",text,enabled?"wifi.relay.off":saved?"wifi.relay.on":"wifi.relay.scan",known,enabled?"停止后恢复蜂窝等原出口；热点保持开启，已保存的上游密码保留。再次连接可点启动。":"连接已保存的上游；同频热点可能短暂重连，是否回退蜂窝由断线策略决定。");cJSON_ReplaceItemInObject(i,"confirm",cJSON_CreateBool(enabled||saved));
  cJSON*scan_item=item(s,"relay-scan",saved?"连接 / 更换上游 Wi-Fi":"连接上游 Wi-Fi","action","扫描附近网络","wifi.relay.scan",known,enabled?"扫描时保留当前中继；确认新网络后切换，失败尝试恢复原网络":"请开启5G热点、关闭访客热点，USB设为LAN");
  cJSON_ReplaceItemInObject(scan_item,"confirm",cJSON_CreateBool(0));
  if(active){int freq=jget(r,"frequency")?jget(r,"frequency")->valueint:0;const char*label=freq>0&&freq<3000?"2.4G 上游中继":freq>=5000?"5G 上游中继":"Wi-Fi 上游中继";cJSON_ReplaceItemInObject(data,"wifi_status",cJSON_CreateString(label));cJSON_ReplaceItemInObject(i,"value",cJSON_CreateString(label));}

@@ -331,7 +331,7 @@ static void sh_home(struct drm_buf*b,struct app*a){
  sh_text(b,24,272,sh_str(cl,"node","尚未选择节点"),17,SH_TEXT,268);
  sh_metric(cl,"quota_remaining",quota,sizeof(quota),0);snprintf(tmp,sizeof(tmp),"剩余 %s",quota);sh_text(b,24,302,tmp,15,SH_TEXT,139);
  cJSON*u=sh_get(cl,"upload"),*v=sh_get(cl,"download");if(cJSON_IsNumber(u)&&cJSON_IsNumber(v))sh_units(u->valuedouble+v->valuedouble,used,sizeof(used),0);else snprintf(used,sizeof(used),"—");snprintf(tmp,sizeof(tmp),"累计 %s",used);sh_text(b,170,302,tmp,15,SH_MUTED,126);hit_add(a,12,237,308,326,SH_SECTION+22);
- const char*labels[]={"Wi-Fi 热点","USB 与网口"};const char*keys[]={"wifi_status","usb_status"};
+ const char*labels[]={cJSON_IsTrue(sh_get(sh_get(d,"wifi_relay"),"enabled"))?"中继管理 / 停止":"Wi-Fi 热点","USB 与网口"};const char*keys[]={"wifi_status","usb_status"};
  for(int i=0;i<2;i++){int x=12+i*151;sh_surface(b,x,333,x+145,378,10,sh_category_card(SH_NETWORK_COLOR));sh_text(b,x+10,341,labels[i],14,SH_MUTED,125);sh_text(b,x+10,358,sh_str(d,keys[i],"状态未知"),15,SH_TEXT,125);hit_add(a,x,333,x+145,378,SH_SECTION+20+i);}
  char clients[24];sh_value(sh_get(d,"clients"),clients,sizeof(clients));
  sh_surface(b,12,383,308,430,9,sh_category_card(SH_DEVICE_COLOR));snprintf(tmp,sizeof(tmp),"已连接设备 · %s 台",clients);sh_text(b,24,399,tmp,16,SH_TEXT,250);sh_text(b,285,398,"›",20,SH_CYAN,16);hit_add(a,12,383,308,430,SH_SECTION+25);
