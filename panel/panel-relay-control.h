@@ -1,3 +1,4 @@
+#include "panel-relay-frequency.h"
 /* Screen orchestration only; credentials travel through stdin, never argv. */
 static int relay_enabled(void){return fixture?cJSON_IsTrue(jget(jget(fixture,"relay.status"),"enabled")):access("/data/u60-panel/relay-private/enabled",F_OK)==0;}
 static cJSON *relay_run(const char*command,const cJSON*args){
@@ -22,7 +23,8 @@ static cJSON *relay_action(const char*action,const cJSON*args){
  if(!strcmp(action,"wifi.relay.select")){
   const char*ssid=jstr(args,"ssid"),*security=jstr(args,"security"),*bssid=jstr(args,"bssid");
   const cJSON*fv=jget(args,"frequency");int freq=cJSON_IsNumber(fv)?fv->valueint:0;
-  if(freq<2412||freq>5825||!*ssid||strlen(ssid)>32||strlen(bssid)!=17||(strcmp(security,"WPA2")&&strcmp(security,"WPA3")&&strcmp(security,"OPEN")))return reply(0,"该网络暂不支持，请选择个人Wi-Fi");
+  if(!relay_frequency(freq))return reply(0,"仅支持2.4GHz或非DFS的5GHz；请将上游改为36–48或149–165信道");
+  if(!*ssid||strlen(ssid)>32||strlen(bssid)!=17||(strcmp(security,"WPA2")&&strcmp(security,"WPA3")&&strcmp(security,"OPEN")))return reply(0,"该网络暂不支持，请选择个人Wi-Fi");
   cJSON*r=reply(1,"在屏幕输入上游密码"),*s=cJSON_CreateObject();cJSON_AddArrayToObject(s,"items");
   cJSON*i=item(s,"relay-connect",ssid,"form","输入密码","wifi.relay.connect",1,"连接并在U60保存上游凭据，按开机连接与断线策略运行。支持双频热点；同频热点信道会跟随上游，IPv6互联网暂停。");
   cJSON_AddStringToObject(jget(i,"args"),"ssid",ssid);cJSON_AddStringToObject(jget(i,"args"),"security",security);cJSON_AddStringToObject(jget(i,"args"),"bssid",bssid);cJSON_AddNumberToObject(jget(i,"args"),"frequency",freq);
@@ -34,23 +36,27 @@ static cJSON *relay_action(const char*action,const cJSON*args){
   cJSON*r=relay_run("scan",NULL);if(!r||!cJSON_IsTrue(jget(r,"ok")))return r?r:reply(0,"扫描不可用");
   cJSON*out=reply(1,"请选择上游Wi-Fi"),*picker=cJSON_AddObjectToObject(out,"picker"),*choices=cJSON_AddArrayToObject(picker,"choices");
   cJSON_AddStringToObject(picker,"label","选择上游 Wi-Fi");cJSON_AddStringToObject(picker,"type","choice");cJSON_AddStringToObject(picker,"action","wifi.relay.select");cJSON_AddBoolToObject(picker,"enabled",1);cJSON_AddBoolToObject(picker,"confirm",0);
+  int hidden=0;
   cJSON*n;cJSON_ArrayForEach(n,jget(r,"networks")){
-   if(strcmp(jstr(n,"security"),"unsupported")==0)continue;
+   if(strcmp(jstr(n,"security"),"unsupported")==0){hidden++;continue;}
    int f=jget(n,"frequency")?jget(n,"frequency")->valueint:0;
-   if(!((f>=2412&&f<=2472&&(f-2412)%5==0)||f==5180||f==5200||f==5220||f==5240||f==5745||f==5765||f==5785||f==5805||f==5825))continue;
-   char label[128];snprintf(label,sizeof(label),"%s · %s",jstr(n,"ssid"),jget(n,"frequency")&&jget(n,"frequency")->valueint<3000?"2.4G":"5G");
+   if(!relay_frequency(f)){hidden++;continue;}
+   char label[128];snprintf(label,sizeof(label),"%s · %s",f<3000?"2.4G":"5G",jstr(n,"ssid"));
    double signal=jget(n,"signal")?jget(n,"signal")->valuedouble:-150;
    int duplicate=-1,at=0;cJSON*old;
    cJSON_ArrayForEach(old,choices){if(!strcmp(jstr(old,"label"),label)&&!strcmp(jstr(jget(old,"args"),"security"),jstr(n,"security"))){duplicate=at;break;}at++;}
    if(duplicate>=0){if(jget(old,"_signal")->valuedouble>=signal)continue;cJSON_DeleteItemFromArray(choices,duplicate);}
    cJSON*c=cJSON_CreateObject();cJSON_AddStringToObject(c,"label",label);cJSON_AddNumberToObject(c,"_signal",signal);
-   char desc[64];snprintf(desc,sizeof(desc),"%s · %.0f dBm",jstr(n,"security"),signal);cJSON_AddStringToObject(c,"description",desc);
+   char desc[64];snprintf(desc,sizeof(desc),"信道%d · %s · %.0f dBm",f<3000?(f-2407)/5:(f-5000)/5,jstr(n,"security"),signal);cJSON_AddStringToObject(c,"description",desc);
    cJSON*args=cJSON_AddObjectToObject(c,"args");for(int k=0;k<3;k++){const char*key=(const char*[]){"ssid","bssid","security"}[k];cJSON_AddStringToObject(args,key,jstr(n,key));}
    cJSON_AddNumberToObject(args,"frequency",jget(n,"frequency")->valueint);
    at=0;cJSON_ArrayForEach(old,choices){if(jget(old,"_signal")->valuedouble<signal)break;at++;}cJSON_InsertItemInArray(choices,at,c);
   }
-  cJSON*choice;cJSON_ArrayForEach(choice,choices)cJSON_DeleteItemFromObject(choice,"_signal");
-  cJSON_Delete(r);if(!cJSON_GetArraySize(choices)){cJSON_Delete(out);return reply(0,"未找到支持的网络，请靠近上游后重试");}return out;
+  int n2=0,n5=0;cJSON*choice;cJSON_ArrayForEach(choice,choices){cJSON_DeleteItemFromObject(choice,"_signal");if(jget(jget(choice,"args"),"frequency")->valueint<3000)n2++;else n5++;}
+  char summary[180];snprintf(summary,sizeof(summary),"2.4G %d / 5G %d · 不兼容 %d",n2,n5,hidden);
+  cJSON_AddStringToObject(picker,"description",summary);
+  cJSON_AddStringToObject(picker,"reason","支持2.4GHz与非DFS的5GHz。近距离优先5GHz，隔墙或远距离可选2.4GHz。DFS、6GHz和不支持的认证网络已隐藏；缺少5GHz时检查上游信道36–48或149–165。");
+  cJSON_Delete(r);if(!cJSON_GetArraySize(choices)){cJSON_Delete(out);return reply(0,hidden?"附近网络暂不支持：DFS/6GHz/企业认证不可连接。5GHz请改用36–48或149–165信道。":"未发现网络，请靠近上游重扫；支持2.4GHz和非DFS的5GHz。");}return out;
  }
  return reply(0,"未知中继操作");
 }
@@ -59,7 +65,7 @@ static void relay_items(cJSON*s,cJSON*data){
  cJSON*r=relay_run("status",NULL);int known=cJSON_IsTrue(jget(r,"ok")),enabled=cJSON_IsTrue(jget(r,"enabled")),active=cJSON_IsTrue(jget(r,"active")),saved=cJSON_IsTrue(jget(r,"saved"));
  const char*state=jstr(r,"state"),*text=!known?"不可用":active?"Wi-Fi 上游":!enabled?"关闭":!strcmp(state,"CONFLICT")?"网段冲突 · 原出口":!strcmp(state,"POLICY")?"热点/USB冲突 · 原出口":!strcmp(state,"SERVICE_DOWN")?"协调服务未运行":!strcmp(state,"ERROR")?"故障 · 请查看策略":"未连通 · 原出口";
  cJSON*i=item(s,"relay",enabled?"停止 Wi-Fi 中继":saved?"启动 Wi-Fi 中继":"Wi-Fi 中继",enabled||saved?"action":"info",text,enabled?"wifi.relay.off":saved?"wifi.relay.on":"wifi.relay.scan",known,enabled?"停止后恢复蜂窝等原出口；热点保持开启，已保存的上游密码保留。再次连接可点启动。":"连接已保存的上游；同频热点可能短暂重连，是否回退蜂窝由断线策略决定。");cJSON_ReplaceItemInObject(i,"confirm",cJSON_CreateBool(enabled||saved));
- cJSON*scan_item=item(s,"relay-scan",saved?"连接 / 更换上游 Wi-Fi":"连接上游 Wi-Fi","action","扫描附近网络","wifi.relay.scan",known,enabled?"扫描时保留当前中继；确认新网络后切换，失败尝试恢复原网络":"请开启5G热点、关闭访客热点，USB设为LAN");
+ cJSON*scan_item=item(s,"relay-scan",saved?"连接 / 更换上游 Wi-Fi":"连接上游 Wi-Fi","action","扫描 2.4G / 5G","wifi.relay.scan",known,enabled?"扫描时保留当前中继；确认新网络后切换，失败尝试恢复原网络":"请开启5G热点、关闭访客热点，USB设为LAN");
  cJSON_ReplaceItemInObject(scan_item,"confirm",cJSON_CreateBool(0));
  if(active){int freq=jget(r,"frequency")?jget(r,"frequency")->valueint:0;const char*label=freq>0&&freq<3000?"2.4G 上游中继":freq>=5000?"5G 上游中继":"Wi-Fi 上游中继";cJSON_ReplaceItemInObject(data,"wifi_status",cJSON_CreateString(label));cJSON_ReplaceItemInObject(i,"value",cJSON_CreateString(label));}
  const char *health=jstr(r,"health");

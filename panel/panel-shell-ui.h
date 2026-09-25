@@ -444,6 +444,7 @@ static void sh_modal(struct drm_buf*b,struct app*a){
  if(s->modal==1||s->modal==5){int total=cJSON_GetArraySize(sh_choices(s)),n=sh_choice_count(s),searchable=total>=12||s->choice_search[0];int y=searchable?128:106;
   fill_rect(b,0,0,144,44,SH_BG);sh_text(b,16,13,"‹ 返回",18,SH_CYAN,122);hit_add(a,0,0,140,44,SH_CANCEL);
   if(searchable){fill_rect(b,12,45,308,92,SH_BG);sh_text(b,20,62,sh_str(s->draft,"label","选项"),18,SH_TEXT,179);sh_button(b,a,210,50,98,38,"搜索",SH_SEARCH,1);char summary[120];snprintf(summary,sizeof(summary),"%s · %d / %d 项",s->choice_search[0]?s->choice_search:"全部",n,total);sh_text(b,16,103,summary,14,SH_MUTED,s->choice_search[0]?209:288);if(s->choice_search[0])sh_button(b,a,234,94,74,30,"清空",SH_SEARCH_CLEAR,0);}
+  const char*hint=sh_str(s->draft,"description","");if(*hint){sh_wrap(b,16,y,hint,288,2,SH_MUTED);y+=text_width(hint,14)>288?48:26;}
   sh_scroll_begin(a,&s->choice_page,n*63+4,y,424);
   for(i=0;i<n;i++){int yy=y+i*63-s->choice_page;if(yy+57<=y||yy>=424)continue;cJSON*c=sh_choice_at(s,i);sh_choice_row(b,a,yy,c,SH_CHOICE+i);}
   sh_scroll_end(b,a);

@@ -1,9 +1,6 @@
 /* Saved-network radio coordination. Never fetches a PSK or changes the saved
  * file during retries; successful interactive connect owns SAVE_CONFIG. */
-static int relay_frequency(int f){
- if(f>=2412&&f<=2472&&(f-2412)%5==0)return 1;
- return f==5180||f==5200||f==5220||f==5240||f==5745||f==5765||f==5785||f==5805||f==5825;
-}
+#include "panel-relay-frequency.h"
 static int align_radio(int frequency){
  if(!relay_frequency(frequency))return 0;
  char freq[16];snprintf(freq,sizeof(freq),"%d",frequency);

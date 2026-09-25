@@ -615,7 +615,8 @@ static cJSON *cc_action_inner(const char *action,const cJSON *args) {
   snprintf(line,sizeof(line),"代理覆盖：IPv4 TCP 与 DNS；UDP 443 拒绝");cJSON_AddItemToArray(lines,cJSON_CreateString(line));
   cJSON_AddItemToArray(lines,cJSON_CreateString("未代理：IPv6 与 443 以外的 UDP"));
   cJSON_AddItemToArray(lines,cJSON_CreateString("已实机验证：增强屏幕、双击电源切换、原厂网页、热点上网、节点选择与回读、订阅节点连通延迟、规则/全局模式切换"));
-  cJSON_AddItemToArray(lines,cJSON_CreateString("未验证：USB/Wi-Fi 中继、深度待机、充电控制、长时高负载、第二台设备首装"));
+  cJSON_AddItemToArray(lines,cJSON_CreateString("B31已验证：2.4G上游、停止/恢复中继、热点客户端IPv4 HTTPS与透明代理；不代表所有设备自动通过"));
+  cJSON_AddItemToArray(lines,cJSON_CreateString("未验证：B31外接USB网卡、5G上游完整下游验收、冷启动恢复、长待机、完整充放电、长时高负载、第二台设备首装"));
   cJSON_AddItemToArray(lines,cJSON_CreateString("回退：USB ADB 的 restore-boot；升级前的程序备份保留在设备本机"));
   return r;
  }else if(!strcmp(action,"clash.history")){

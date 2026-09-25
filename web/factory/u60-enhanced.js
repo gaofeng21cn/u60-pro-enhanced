@@ -69,6 +69,7 @@ define(['jquery','service_helper','config/config','u60-web-model','u60-web-advan
   if(item.type==='choice'){
    var b=openDialog(item.label),list=node('div','u60-choices').appendTo(b),choices=item.choices||[];
    if(item.reason)b.prepend(node('p','u60-help',item.reason));
+   if(item.description)b.prepend(node('p','u60-help',item.description));
    if(choices.length>8){var search=node('input','u60-input').attr({'type':'search','placeholder':'搜索选项','aria-label':'搜索选项'});b.prepend(search);search.on('input',function(){var q=this.value.toLowerCase();list.children().each(function(){$(this).toggle($(this).text().toLowerCase().indexOf(q)>=0);});});}
    choices.forEach(function(choice){list.append(node('button','u60-choice').append(node('span','',choice.label),choice.description?node('small','',choice.description):null).on('click',function(){confirm(item,model.argumentsFor(item,choice));}));});
    if(!choices.length)list.append(node('p','u60-help','暂无可用选项'));return;

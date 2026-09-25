@@ -22,7 +22,11 @@ with tempfile.TemporaryDirectory() as td:
  assert not call('wifi.relay.select',dict(args,security='unsupported'))['ok']
  data['relay.scan']['networks'].reverse();r=call('wifi.relay.scan');assert len(r['picker']['choices'])==1 and r['picker']['choices'][0]['args']['bssid']=='aa:bb:cc:dd:ee:ff'
  data['relay.scan']['networks'].append({'ssid':'Test WiFi','bssid':'aa:bb:cc:dd:ee:fc','security':'WPA2','signal':-30,'frequency':2412})
- r=call('wifi.relay.scan');assert len(r['picker']['choices'])==2 and r['picker']['choices'][0]['label'].endswith('2.4G') and r['picker']['choices'][1]['label'].endswith('5G')
+ r=call('wifi.relay.scan');assert len(r['picker']['choices'])==2 and r['picker']['choices'][0]['label'].startswith('2.4G') and r['picker']['choices'][1]['label'].startswith('5G')
+ assert not call('wifi.relay.select',dict(args,frequency=5260))['ok']
+ assert not call('wifi.relay.select',dict(args,frequency=2413))['ok']
+ assert '信道' in r['picker']['choices'][0]['description']
+ assert '5G 1' in r['picker']['description']
  r=call('state');s=next(x for x in r['sections']if x['id']=='wifi');assert s['items'][0]['id']=='relay' and s['items'][1]['id']=='relay-scan';assert s['items'][0]['type']=='info'
  data['relay.status'].update(enabled=True,active=True,saved=True,state='CONNECTED',frequency=2437);r=call('state');s=next(x for x in r['sections']if x['id']=='wifi');assert s['items'][0]['action']=='wifi.relay.off' and s['items'][0]['label']=='停止 Wi-Fi 中继' and s['items'][0]['confirm'];assert s['items'][1]['id']=='relay-scan' and s['items'][1]['enabled'] and s['items'][1]['confirm'] is False;assert call('wifi.relay.scan')['ok'];assert r['data']['wifi_status']=='2.4G 上游中继'
  assert 'password' not in json.dumps(r['data']['wifi_relay'])
@@ -37,4 +41,8 @@ with tempfile.TemporaryDirectory() as td:
  assert next(x for x in rows if x['id']=='relay-fallback')['value']=='禁止蜂窝回退'
  assert next(x for x in rows if x['id']=='relay-forget')['enabled']
  assert call('wifi.relay.forget')['ok']
+ data['relay.scan']['networks']=[dict(args,frequency=5260,signal=-40)]
+ r=call('wifi.relay.scan');assert not r['ok'] and 'DFS' in r['message'] and '36' in r['message']
+ data['relay.scan']['networks']=[]
+ assert '未发现网络' in call('wifi.relay.scan')['message']
  print('PASS: relay scan-picker-password flow, unsupported networks excluded, active/off entry, home status and no secret readback')
