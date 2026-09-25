@@ -12,6 +12,7 @@ owned=0
 stop_service() { [ ! -e "$PRIVATE/enabled" ]; }
 flock() { calls=$((calls+1));[ "$SCENARIO" != timeout ] && [ "$calls" -ge 3 ] && owned=1; }
 sleep() { :; }
+cell_guard() { :; }
 cleanup() { [ "$owned" = 1 ] || exit 9;touch "$RUN/cleaned"; }
 phase() { echo "$1" > "$RUN/phase"; }
 '''

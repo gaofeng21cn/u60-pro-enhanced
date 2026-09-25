@@ -71,7 +71,7 @@ static int mac_valid(const char*s){if(strlen(s)!=17)return 0;for(int i=0;i<17;i+
 static const char *security(const char*f){if(strstr(f,"EAP"))return "unsupported";if(strstr(f,"PSK"))return "WPA2";if(strstr(f,"SAE"))return "WPA3";if(strstr(f,"WEP")||strstr(f,"RSN")||strstr(f,"WPA"))return "unsupported";return "OPEN";}
 static cJSON *parse_scan(char*b){cJSON*a=cJSON_CreateArray();char*save=NULL,*line=strtok_r(b,"\n",&save);while((line=strtok_r(NULL,"\n",&save))&&cJSON_GetArraySize(a)<96){char*col[5];col[0]=line;int n=1;for(char*p=line;*p&&n<5;p++)if(*p=='\t'){*p=0;col[n++]=p+1;}if(n!=5||!mac_valid(col[0]))continue;char ssid[33];if(!decode_ssid(col[4],ssid))continue;int freq=atoi(col[1]),signal=atoi(col[2]);if(freq<2400||freq>7125||signal>0||signal< -150)continue;cJSON*j=cJSON_CreateObject();cJSON_AddStringToObject(j,"ssid",ssid);cJSON_AddStringToObject(j,"bssid",col[0]);cJSON_AddStringToObject(j,"security",security(col[3]));cJSON_AddNumberToObject(j,"frequency",freq);cJSON_AddNumberToObject(j,"signal",signal);cJSON_AddItemToArray(a,j);}return a;}
 #include "panel-relay-radio.h"
-static cJSON *scan(void){if(!helper("prepare"))return result(0,"请开启5G热点、关闭访客热点，并将USB网口设为LAN");if(!fresh_scan()){helper("scan-stop");return result(0,"无线扫描未完成，请稍后重试");}char b[32768];cJSON*net=ctrl("SCAN_RESULTS",b,sizeof(b))?parse_scan(b):NULL;helper("scan-stop");if(!net)return result(0,"扫描结果读取失败");cJSON*j=result(1,"请选择上游Wi-Fi");cJSON_AddItemToObject(j,"networks",net);return j;}
+static cJSON *scan(void){if(!helper("prepare")){helper("scan-stop");return result(0,"暂不能扫描。请确认 5G 热点已开启、访客热点已关闭、USB 为 LAN；若开关失败，请先恢复热点。");}if(!fresh_scan()){helper("scan-stop");return result(0,"无线扫描未完成，请稍后重试");}char b[32768];cJSON*net=ctrl("SCAN_RESULTS",b,sizeof(b))?parse_scan(b):NULL;helper("scan-stop");if(!net)return result(0,"扫描结果读取失败");cJSON*j=result(1,"请选择上游Wi-Fi");cJSON_AddItemToObject(j,"networks",net);return j;}
 static cJSON *connect_ap(const cJSON*a){
  const char *ssid=str(a,"ssid"),*pass=str(a,"password"),*sec=str(a,"security"),*bssid=str(a,"bssid");size_t pn=strlen(pass);
  if(!ssid_valid(ssid)||(*bssid&&!mac_valid(bssid)))return result(0,"Wi-Fi名称或地址无效");
@@ -80,9 +80,11 @@ static cJSON *connect_ap(const cJSON*a){
  const cJSON*fv=cJSON_GetObjectItemCaseSensitive(a,"frequency");int frequency=cJSON_IsNumber(fv)?fv->valueint:0;
  if(!relay_frequency(frequency))return result(0,"请选择2.4G或非DFS的5G上游信道");
  int resume=access(PRIVATE "/enabled",F_OK)==0;
+ const char*stage="无线准备失败，请先确认 5G 热点可开启";
  char b[4096],cmd[512],quoted[132],hex[65];int id=-1;
- if(resume&&!helper("off"))return result(0,"当前中继未能退出，未切换网络");
+ if(resume&&!helper("pause"))return result(0,"当前中继未能退出，未切换网络");
  if(!helper("prepare"))goto fail;
+ stage="无线连接参数未被接受";
  if(!ack("REMOVE_NETWORK all")||!ctrl("ADD_NETWORK",b,sizeof(b)))goto fail;
  char *end;long parsed=strtol(b,&end,10);if(parsed<0||parsed>4096||(*end&&strcmp(end,"\n")))goto fail;id=(int)parsed;
  for(size_t i=0;i<strlen(ssid);i++)snprintf(hex+i*2,3,"%02x",(unsigned char)ssid[i]);
@@ -91,10 +93,11 @@ static cJSON *connect_ap(const cJSON*a){
  snprintf(cmd,sizeof(cmd),"SET_NETWORK %d key_mgmt %s",id,!strcmp(sec,"OPEN")?"NONE":!strcmp(sec,"WPA3")?"SAE":"WPA-PSK");if(!ack(cmd))goto fail;
  if(strcmp(sec,"OPEN")){size_t at=0;quoted[at++]='"';for(size_t i=0;i<pn;i++){if(pass[i]=='"'||pass[i]=='\\')quoted[at++]='\\';quoted[at++]=pass[i];}quoted[at++]='"';quoted[at]=0;snprintf(cmd,sizeof(cmd),"SET_NETWORK %d %s %s",id,!strcmp(sec,"WPA3")?"sae_password":"psk",quoted);int ok=ack(cmd);memset(quoted,0,sizeof(quoted));memset(cmd,0,sizeof(cmd));if(!ok)goto fail;}
  if(!strcmp(sec,"WPA3")){snprintf(cmd,sizeof(cmd),"SET_NETWORK %d ieee80211w 2",id);if(!ack(cmd))goto fail;}
- snprintf(cmd,sizeof(cmd),"SET_NETWORK %d freq_list %d",id,frequency);if(!ack(cmd)||!align_radio(frequency))goto fail;
+ snprintf(cmd,sizeof(cmd),"SET_NETWORK %d freq_list %d",id,frequency);if(!ack(cmd))goto fail;stage="热点信道切换失败，已尝试恢复；请换用 2.4G 上游或原热点信道";if(!align_radio(frequency))goto fail;
  snprintf(cmd,sizeof(cmd),"SELECT_NETWORK %d",id);if(!ack(cmd))goto fail;
+ stage="关联未完成，请核对密码、信号和上游加密方式";
  for(int n=0;n<CONNECT_TRIES;n++){char state[64];if(ctrl("STATUS",b,sizeof(b))&&keyval(b,"wpa_state",state,sizeof(state))&&!strcmp(state,"COMPLETED")){char actual[32];if(!keyval(b,"freq",actual,sizeof(actual))||atoi(actual)!=frequency)goto fail;if(!ack("SAVE_CONFIG"))goto fail;save_band(frequency);if(!helper("enable"))return result(0,"新网络已保存，但中继服务未启动，请重试开启");return result(1,"已连接并保存，正在获取上游地址；以中继状态为准");}sleep(1);}
- fail:memset(cmd,0,sizeof(cmd));if(id>=0){snprintf(cmd,sizeof(cmd),"REMOVE_NETWORK %d",id);ack(cmd);}helper("off");if(resume){int requested=helper("on");return result(0,requested?"新网络连接失败，已请求恢复原中继；请查看上游状态":"新网络连接失败，原中继恢复未确认；请重试开启");}return result(0,"中继未连接，已保留原出口；请核对密码、信号及热点并发状态");
+ fail:memset(cmd,0,sizeof(cmd));if(id>=0){snprintf(cmd,sizeof(cmd),"REMOVE_NETWORK %d",id);ack(cmd);}helper(resume?"pause":"off");if(resume){int requested=helper("on");return result(0,requested?"新网络连接失败，已请求恢复原中继；请查看上游状态":"新网络连接失败，原中继恢复未确认；请重试开启");}return result(0,stage);
 }
 static int ipv4(const char*s,uint32_t*out){struct in_addr a;if(inet_pton(AF_INET,s,&a)!=1)return 0;*out=ntohl(a.s_addr);return 1;}
 static cJSON *lease(const cJSON*a){

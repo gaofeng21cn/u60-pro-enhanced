@@ -25,6 +25,7 @@ static long now_ms(void){return clock_ms;}
 static const char*jstr(cJSON*r,const char*k){cJSON*v=cJSON_GetObjectItem(r,k);return cJSON_IsString(v)?v->valuestring:"";}
 static void sh_open_item(struct app*a,cJSON*r){(void)a;(void)r;}
 static void sh_show_report(struct app*a,cJSON*r){(void)a;(void)r;}
+static void sh_action_result(struct app*a,cJSON*r){a->shell.busy=0;snprintf(a->shell.status,sizeof(a->shell.status),"%s",jstr(r,"message"));}
 static void append_screen_controls(struct app*a){(void)a;}
 static void worker_clear(int fail){(void)fail;if(pw.fd>=0)close(pw.fd);free(pw.buf);memset(&pw,0,sizeof(pw));pw.fd=-1;}
 static int worker_start(cJSON*r,int action){assert(!strcmp(jstr(r,"action"),"state"));assert(!action);starts++;return 1;}

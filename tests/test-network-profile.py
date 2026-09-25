@@ -367,6 +367,15 @@ class NetworkProfileTests(unittest.TestCase):
         self.assertIn("ip6 -I FORWARD 1 -i br-lan -j U60_PANEL_GUARD6", commands)
         self.assertNotIn("INPUT", commands)
 
+    def test_deleted_inode_requires_identical_running_bytes(self):
+        core=self.h.root/'clash/mihomo'
+        old=core.with_name('mihomo (deleted)');old.write_text('same binary')
+        core.write_text('same binary')
+        exe=self.h.root/'proc'/str(os.getpid())/'exe';exe.unlink();exe.symlink_to(old)
+        self.assertEqual(self.h.run('clash').returncode,0)
+        core.write_text('different replacement')
+        self.assertNotEqual(self.h.run('clash').returncode,0)
+
     def test_guard_removed_only_after_successful_clash_graph(self):
         (self.h.state / "network-profile").write_text("error\n")
         r = self.h.run("clash")

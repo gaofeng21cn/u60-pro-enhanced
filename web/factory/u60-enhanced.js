@@ -31,7 +31,7 @@ define(['jquery','service_helper','config/config','u60-web-model','u60-web-advan
    if(generation!==alive||cache.session!==session||!present()){deferred.reject(new Error('页面已切换，请在当前页面重新操作'));return;}
    var started=Date.now();
    rpc('start',{request:JSON.stringify({action:action,args:args||{}})}).then(function(start){
-    function poll(){rpc('result',{id:start.id}).then(function(result){if(result.done){deferred.resolve(result.payload);return;}if(Date.now()-started>150000){deferred.reject(new Error('等待超时，请刷新并核对实际状态'));return;}setTimeout(poll,500);},deferred.reject);}
+    function poll(){rpc('result',{id:start.id}).then(function(result){if(result.done){deferred.resolve(result.payload);return;}if(Date.now()-started>240000){deferred.reject(new Error('等待超时，请刷新并核对实际状态'));return;}setTimeout(poll,500);},deferred.reject);}
     poll();
    },deferred.reject);
   }

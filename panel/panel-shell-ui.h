@@ -86,7 +86,7 @@ static void sh_nav_icon(struct drm_buf*b,int type,int x,int y,uint16_t c){
 }
 enum { SH_BACK=2000,SH_REFRESH,SH_PREV,SH_NEXT,SH_CANCEL,SH_APPLY,SH_CONFIRM,
  SH_KEYMODE,SH_SHIFT,SH_DELETE,SH_SPACE,SH_DONE,SH_REVEAL,SH_FIELD_PREV,SH_FIELD_NEXT,
- SH_POWER_OFF,SH_POWER_REBOOT,SH_FACTORY,SH_SEARCH=2031,SH_SEARCH_CLEAR,SH_STATUS=2030,SH_TAB=2020,SH_SECTION=2040,
+ SH_POWER_OFF,SH_POWER_REBOOT,SH_FACTORY,SH_SEARCH=2031,SH_SEARCH_CLEAR,SH_ALPHA,SH_DIGITS,SH_SYMBOLS,SH_STATUS=2030,SH_TAB=2020,SH_SECTION=2040,
  SH_ITEM=10000,SH_CHOICE=20000,SH_FIELD=30000,SH_KEY=2600 };
 static cJSON *sh_get(cJSON *o,const char *k){return cJSON_GetObjectItemCaseSensitive(o,k);}
 static const char *sh_str(cJSON *o,const char *k,const char *fallback){cJSON *v=sh_get(o,k);return cJSON_IsString(v)&&v->valuestring[0]?v->valuestring:fallback;}
@@ -157,7 +157,10 @@ static void sh_issue(struct app*a,cJSON*args){
  const char*action=sh_str(a->shell.draft,"action","");
  if(a->shell.busy){snprintf(a->shell.message,sizeof(a->shell.message),"上一项操作仍在执行，请稍候");a->shell.modal=3;return;}
  if(!*action){snprintf(a->shell.message,sizeof(a->shell.message),"此项暂无可执行操作");a->shell.modal=3;return;}
- shell_dispatch(a,action,args);sh_close(a);
+ int retry=!strcmp(action,"wifi.relay.connect");
+ shell_dispatch(a,action,args);
+ if(retry&&a->shell.busy){a->shell.modal=a->shell.editor=0;a->shell.reveal=0;cJSON_Delete(a->shell.pending_args);a->shell.pending_args=NULL;}
+ else sh_close(a);
 }
 static void sh_prepare(struct app*a,cJSON*args){
  if(cJSON_IsTrue(sh_get(a->shell.draft,"confirm"))){cJSON_Delete(a->shell.pending_args);a->shell.pending_args=cJSON_Duplicate(args,1);a->shell.modal=2;a->shell.editor=0;}
@@ -178,8 +181,9 @@ static void sh_open_item(struct app*a,cJSON*item){
  if(!strcmp(type,"form")){
   cJSON*fs=sh_get(s->draft,"fields");int total=cJSON_GetArraySize(fs);
   if(total>SHELL_MAX_FIELDS){snprintf(s->message,sizeof(s->message),"此表单字段超出屏幕容量，暂不能安全提交");s->modal=3;return;}
-  s->nfields=total;s->modal=4;s->field_page=0;
+  s->nfields=total;s->modal=4;s->field_page=0;s->key_page=0;s->shift=0;
   for(i=0;i<total;i++){cJSON*f=cJSON_GetArrayItem(fs,i);cJSON*v=sh_get(f,"value");if(cJSON_IsString(v)&&strlen(v->valuestring)>=SHELL_VALUE_CAP){snprintf(s->message,sizeof(s->message),"字段内容过长，无法安全编辑");s->modal=3;return;}if(v&&!cJSON_IsNull(v))sh_value(v,s->values[i],sizeof(s->values[i]));}
+ if(!strcmp(sh_str(s->draft,"action",""),"wifi.relay.connect")&&total==1&&cJSON_IsTrue(sh_get(cJSON_GetArrayItem(fs,0),"required"))){s->field=0;s->editor=1;}
  }else if(!strcmp(type,"choice")){s->modal=1;s->choice_page=0;}
  else if(!strcmp(type,"report")){cJSON*r=cJSON_CreateObject();cJSON_AddStringToObject(r,"title",sh_str(item,"label","详情"));cJSON*ls=cJSON_AddArrayToObject(r,"lines");cJSON_AddItemToArray(ls,cJSON_CreateString(sh_str(item,"detail",sh_str(item,"value","暂无数据"))));sh_show_report(a,r);cJSON_Delete(r);}
  else if(!strcmp(type,"info")){char v[180];sh_value(sh_get(item,"value"),v,sizeof(v));snprintf(s->message,sizeof(s->message),"%s",v);s->modal=3;}
@@ -223,6 +227,17 @@ static int sh_choice_current(struct app*a,cJSON*c){
   const char*name=sh_str(sh_get(c,"args"),"name","");return *node&&*name&&!strcmp(node,name);
  }
  return *current&&!strcmp(current,sh_str(c,"label",""));
+}
+/* Completion is shared with the real worker and preview regressions. */
+static void sh_action_result(struct app*a,cJSON*r){
+ struct panel_shell*s=&a->shell;s->busy=0;s->status_until=now_ms()+8000;
+ snprintf(s->status,sizeof(s->status),"%s",sh_str(r,"message","操作超时或结果未知，请刷新核对"));
+ if(cJSON_IsObject(sh_get(r,"picker")))sh_open_item(a,sh_get(r,"picker"));
+ else if(cJSON_IsObject(sh_get(r,"report")))sh_show_report(a,sh_get(r,"report"));
+ else if(!r||!cJSON_IsTrue(sh_get(r,"ok"))){
+  snprintf(s->message,sizeof(s->message),"%s",s->status);s->status_until=0;
+  s->modal=s->draft&&!strcmp(sh_str(s->draft,"action",""),"wifi.relay.connect")?4:3;
+ }else if(s->draft&&!strcmp(sh_str(s->draft,"action",""),"wifi.relay.connect"))sh_close(a);
 }
 static void sh_choice_row(struct drm_buf*b,struct app*a,int y,cJSON*c,int id){
  int enabled=!cJSON_IsFalse(sh_get(c,"enabled")),selected=sh_choice_current(a,c);const char*label=sh_str(c,"label","选项"),*description=sh_str(c,"description","");
@@ -381,21 +396,29 @@ static void sh_search_reset(struct panel_shell*s){s->choice_search[0]=s->search_
 static const char *sh_keyboard(struct panel_shell*s){
  static const char*pages[]={"abcdefghijklmnopqrstuvwxyz","0123456789.-/:_@+", "!#$%&*()=,?[]{}<>;\\\"'`~^|"};return pages[s->key_page%3];
 }
+static size_t sh_input_capacity(struct panel_shell*s){
+ if(s->editor==2)return SHELL_SEARCH_CAP;
+ cJSON*f=cJSON_GetArrayItem(sh_get(s->draft,"fields"),s->field);
+ int limit=sh_num(f,"maxLength",SHELL_VALUE_CAP-1);
+ return limit>0&&limit<SHELL_VALUE_CAP?(size_t)limit+1:SHELL_VALUE_CAP;
+}
 static void sh_editor(struct drm_buf*b,struct app*a){
- struct panel_shell*s=&a->shell;int search=s->editor==2;cJSON*f=search?NULL:cJSON_GetArrayItem(sh_get(s->draft,"fields"),s->field);const char*kind=sh_str(f,"kind","text");const char*input=search?s->search_edit:s->values[s->field];size_t capacity=search?SHELL_SEARCH_CAP:SHELL_VALUE_CAP;char value[SHELL_VALUE_CAP],key[2]={0,0};const char*keys=sh_keyboard(s);int i,n=(int)strlen(keys),password=!search&&!strcmp(kind,"password");
- hit_reset(a);sh_background(b,0,0,320,480);sh_text(b,16,14,search?"搜索选项":sh_str(f,"label","编辑"),19,SH_TEXT,search?151:210);if(search)sh_button(b,a,180,6,60,36,"取消",SH_CANCEL,0);sh_button(b,a,246,6,62,36,"完成",SH_DONE,1);
- sh_text(b,16,57,search?"如 HK、JP、US、01 · 可用空格组合":"输入英文、数字或符号",14,SH_MUTED,288);
+ struct panel_shell*s=&a->shell;int search=s->editor==2;cJSON*f=search?NULL:cJSON_GetArrayItem(sh_get(s->draft,"fields"),s->field);const char*kind=sh_str(f,"kind","text");const char*input=search?s->search_edit:s->values[s->field];size_t capacity=sh_input_capacity(s);char value[SHELL_VALUE_CAP],key[2]={0,0};const char*keys=sh_keyboard(s);int i,n=(int)strlen(keys),password=!search&&!strcmp(kind,"password");
+ hit_reset(a);sh_background(b,0,0,320,480);
+ sh_text(b,12,8,search?"搜索选项":sh_str(f,"label","编辑"),18,SH_TEXT,296);
+ sh_button(b,a,8,35,96,44,"返回",SH_CANCEL,0);sh_button(b,a,210,35,102,44,"完成",SH_DONE,1);
  snprintf(value,sizeof(value),"%s",input);if(password&&!s->reveal)for(i=0;value[i];i++)value[i]='*';
- fill_round(b,12,83,308,153,12,SH_CARD);
- /* Last characters stay in view while editing; move only on UTF-8 boundaries. */
- const char*visible=value;while(*visible&&text_width(visible,17)>270){visible++;while((*visible&0xC0)==0x80)visible++;}
- sh_text(b,24,107,*visible?visible:"|",17,SH_TEXT,271);
- char count[60];snprintf(count,sizeof(count),"%zu / %zu",strlen(input),capacity-1);sh_text(b,16,163,count,14,SH_MUTED,130);
- if(password)sh_button(b,a,211,158,97,36,s->reveal?"隐藏密码":"显示密码",SH_REVEAL,0);else if(search||!strcmp(kind,"number"))sh_button(b,a,211,158,97,36,"清空",SH_SEARCH_CLEAR,0);
- for(i=0;i<n;i++){int x=8+(i%7)*44,y=211+(i/7)*47;key[0]=keys[i];if(s->shift&&key[0]>='a'&&key[0]<='z')key[0]-=32;sh_button(b,a,x,y,40,41,key,SH_KEY+i,0);}
- sh_button(b,a,8,404,69,56,s->key_page==0?"123":s->key_page==1?"符号":"ABC",SH_KEYMODE,0);
- sh_button(b,a,83,404,66,56,s->shift?"大写":"小写",SH_SHIFT,s->shift);
- sh_button(b,a,155,404,70,56,"空格",SH_SPACE,0);sh_button(b,a,231,404,81,56,"退格",SH_DELETE,0);
+ fill_round(b,8,85,312,135,10,SH_CARD);
+ const char*visible=value;while(*visible&&text_width(visible,17)>276){visible++;while((*visible&0xC0)==0x80)visible++;}
+ sh_text(b,18,101,*visible?visible:"|",17,SH_TEXT,280);
+ char count[60];snprintf(count,sizeof(count),"%zu / %zu%s",strlen(input),capacity-1,password&&sh_num(f,"minLength",0)?" · 至少8位":"");sh_text(b,12,151,count,14,SH_MUTED,188);
+ if(password)sh_button(b,a,204,140,108,44,s->reveal?"隐藏密码":"显示密码",SH_REVEAL,0);else if(search||!strcmp(kind,"number"))sh_button(b,a,204,140,108,44,"清空",SH_SEARCH_CLEAR,0);
+ sh_button(b,a,8,190,96,44,"ABC",SH_ALPHA,s->key_page==0);
+ sh_button(b,a,112,190,96,44,"123",SH_DIGITS,s->key_page==1);
+ sh_button(b,a,216,190,96,44,"符号",SH_SYMBOLS,s->key_page==2);
+ for(i=0;i<n;i++){int x=2+(i%7)*45,y=240+(i/7)*45;key[0]=keys[i];if(s->shift&&key[0]>='a'&&key[0]<='z')key[0]-=32;sh_button(b,a,x,y,44,44,key,SH_KEY+i,0);}
+ sh_button(b,a,8,426,96,48,s->shift?"大写锁定":"小写",SH_SHIFT,s->shift);
+ sh_button(b,a,112,426,96,48,"空格",SH_SPACE,0);sh_button(b,a,216,426,96,48,"退格",SH_DELETE,0);
 }
 static void sh_form(struct drm_buf*b,struct app*a){
  struct panel_shell*s=&a->shell;int i;char val[SHELL_VALUE_CAP];cJSON*fs=sh_get(s->draft,"fields");
@@ -403,8 +426,8 @@ static void sh_form(struct drm_buf*b,struct app*a){
  sh_scroll_begin(a,&s->field_page,s->nfields*63+8,76,396);
  for(i=0;i<s->nfields;i++){int k=i;int y=80+i*63-s->field_page;if(y+57<=76||y>=396)continue;cJSON*f=cJSON_GetArrayItem(fs,k);snprintf(val,sizeof(val),"%s",s->values[k][0]?s->values[k]:"轻点输入");if(!strcmp(sh_str(f,"kind","text"),"choice")){cJSON*c;cJSON_ArrayForEach(c,sh_get(f,"choices")){char cv[SHELL_VALUE_CAP];sh_value(sh_get(c,"value"),cv,sizeof(cv));if(!strcmp(cv,s->values[k])){snprintf(val,sizeof(val),"%s",sh_str(c,"label",cv));break;}}}if(!strcmp(sh_str(f,"kind","text"),"password")&&s->values[k][0])snprintf(val,sizeof(val),"••••••••");sh_row(b,a,y,sh_str(f,"label","字段"),val,SH_FIELD+i,1,sh_current_group(a));}
  sh_scroll_end(b,a);
- if(s->message[0])sh_text(b,16,400,s->message,14,SH_WARN,288);
- sh_button(b,a,12,429,142,42,"取消",SH_CANCEL,0);sh_button(b,a,166,429,142,42,"保存",SH_APPLY,1);
+ if(s->message[0]){if(!strcmp(sh_str(s->draft,"action",""),"wifi.relay.connect"))sh_wrap(b,16,275,s->message,288,6,SH_WARN);else sh_text(b,16,400,s->message,14,SH_WARN,288);}else if(!strcmp(sh_str(s->draft,"action",""),"wifi.relay.connect"))sh_wrap(b,16,220,"也可在手机或电脑登录原厂管理页 → 增强功能 → 网络，输入上游密码。",288,6,SH_MUTED);
+ sh_button(b,a,12,429,142,42,"取消",SH_CANCEL,0);sh_button(b,a,166,429,142,42,!strcmp(sh_str(s->draft,"action",""),"wifi.relay.connect")?"连接":"保存",SH_APPLY,1);
 }
 static void sh_modal(struct drm_buf*b,struct app*a){
  struct panel_shell*s=&a->shell;int i;
@@ -443,7 +466,7 @@ static void shell_render(struct drm_buf*b,struct app*a){
  sh_statusbar(b,a,time(NULL));
  if(s->tab==0)sh_home(b,a);else if(s->subpage)sh_detail(b,a);else if(s->tab==1||s->tab==4)sh_section_list(b,a);else {sh_open_section(a,s->tab==2?"clash":"tailscale");sh_detail(b,a);}
  sh_navigation(b,a);
- if(s->busy){fill_rect(b,0,0,140,44,SH_RAISED);sh_text(b,12,14,"正在应用…",16,SH_CYAN,122);}
+ if(s->busy){fill_rect(b,0,0,140,44,SH_RAISED);sh_text(b,12,14,"正在处理…",16,SH_CYAN,122);sh_surface(b,12,325,308,420,12,SH_RAISED);sh_wrap(b,24,340,s->status,272,3,SH_TEXT);}
  else if(s->status[0]&&now_ms()<s->status_until){
   /* The title area doubles as a dismissible operation receipt, without blocking navigation. */
   fill_rect(b,0,0,140,44,SH_RAISED);sh_text(b,12,5,"结果 · 轻点查看",14,SH_CYAN,122);sh_text(b,12,24,s->status,14,SH_TEXT,122);
@@ -457,6 +480,8 @@ static void sh_save_form(struct app*a){
  if(!args)return;
  for(i=0;i<s->nfields;i++){cJSON*f=cJSON_GetArrayItem(fs,i);const char*key=sh_str(f,"key","");const char*kind=sh_str(f,"kind","text");
   if(cJSON_IsTrue(sh_get(f,"required"))&&!s->values[i][0]){snprintf(s->message,sizeof(s->message),"请填写 %s",sh_str(f,"label","必填项"));cJSON_Delete(args);return;}
+  int min=sh_num(f,"minLength",0),max=sh_num(f,"maxLength",SHELL_VALUE_CAP-1);
+  if((int)strlen(s->values[i])<min||(int)strlen(s->values[i])>max){snprintf(s->message,sizeof(s->message),"%s需 %d 至 %d 位",sh_str(f,"label","输入"),min,max);cJSON_Delete(args);return;}
   if(!*key){snprintf(s->message,sizeof(s->message),"字段缺少名称，未提交");cJSON_Delete(args);return;}
   if(!strcmp(kind,"number")&&s->values[i][0]){char*end;strtod(s->values[i],&end);if(*end){snprintf(s->message,sizeof(s->message),"请输入有效数字");cJSON_Delete(args);return;}}
   cJSON_DeleteItemFromObjectCaseSensitive(args,key);cJSON_AddStringToObject(args,key,s->values[i]);
@@ -466,14 +491,18 @@ static void sh_save_form(struct app*a){
 static int shell_hit(struct app*a,int id){
  struct panel_shell*s=&a->shell;int i;
  if(id<2000)return 0;
+ if(s->busy&&s->draft&&!strcmp(sh_str(s->draft,"action",""),"wifi.relay.connect"))return 1;
  if(id==SH_STATUS&&!s->modal&&!s->power_open){snprintf(s->message,sizeof(s->message),"%s",s->status);s->modal=3;s->status_until=0;return 1;}
  if(s->power_open){if(id==SH_CANCEL)s->power_open=0;else if(id==SH_POWER_OFF||id==SH_POWER_REBOOT){s->power_open=0;shell_power(a,id==SH_POWER_REBOOT);}return 1;}
  if(s->editor){
-  int search=s->editor==2;char*v=search?s->search_edit:s->values[s->field];size_t n=strlen(v),capacity=search?SHELL_SEARCH_CAP:SHELL_VALUE_CAP;const char*keys=sh_keyboard(s);
+  int search=s->editor==2;char*v=search?s->search_edit:s->values[s->field];size_t n=strlen(v),capacity=sh_input_capacity(s);const char*keys=sh_keyboard(s);
   if(id==SH_DONE){if(search){snprintf(s->choice_search,sizeof(s->choice_search),"%s",s->search_edit);s->choice_page=0;}s->editor=0;s->reveal=0;}
-  else if(search&&id==SH_CANCEL){s->editor=0;s->choice_page=s->search_saved_page;}
+  else if(id==SH_CANCEL){s->editor=0;s->reveal=0;if(search)s->choice_page=s->search_saved_page;}
   else if(id==SH_SEARCH_CLEAR&&(search||!strcmp(sh_str(cJSON_GetArrayItem(sh_get(s->draft,"fields"),s->field),"kind",""),"number")))v[0]=0;
   else if(id==SH_REVEAL)s->reveal=!s->reveal;
+  else if(id==SH_ALPHA)s->key_page=0;
+  else if(id==SH_DIGITS)s->key_page=1;
+  else if(id==SH_SYMBOLS)s->key_page=2;
   else if(id==SH_KEYMODE)s->key_page=(s->key_page+1)%3;
   else if(id==SH_SHIFT)s->shift=!s->shift;
   else if(id==SH_DELETE&&n){n--;while(n&&(v[n]&0xC0)==0x80)n--;v[n]=0;}

@@ -29,7 +29,13 @@ fi
 saved_mode() { SAVED=userspace; if [ -f "$MODEFILE" ]; then IFS= read -r mode < "$MODEFILE" || :; [ "${mode:-}" != tun ] || SAVED=tun; fi; }
 owned() {
  case "${1:-}" in ''|*[!0-9]*|0|1) return 1;; esac
- [ "$(readlink "$PROC/$1/exe" 2>/dev/null)" = "$BIN" ] || return 1
+ link=$(readlink "$PROC/$1/exe" 2>/dev/null)
+ if [ "$link" != "$BIN" ];then
+  [ "$link" = "$BIN (deleted)" ] || return 1
+  running_sha=$(sha256sum "$PROC/$1/exe" 2>/dev/null | cut -d ' ' -f 1)
+  installed_sha=$(sha256sum "$BIN" 2>/dev/null | cut -d ' ' -f 1)
+  [ -n "$running_sha" ] && [ "$running_sha" = "$installed_sha" ] || return 1
+ fi
  [ -r "$PROC/$1/cmdline" ] || return 1
  # Binary identity plus exact state/socket scope, not a process-name match.
  tr '\000' '\n' < "$PROC/$1/cmdline" | grep -Fx -- "--state=$STATE" >/dev/null 2>&1 || return 1

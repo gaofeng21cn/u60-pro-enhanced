@@ -6,6 +6,8 @@ s=(R/'panel/wifi-relay.sh').read_text();f=s[s.index('radio_args()'):s.index('all
 with tempfile.TemporaryDirectory() as td:
  p=pathlib.Path(td)
  pre='''set -eu
+ROOT=$RUN
+setting() { echo 1; }
 flock() { [ "$1" = -n ] && [ "$2" = 7 ]; }
 sleep() { :; }
 iw() { printf 'channel 1 (%s MHz), width: 20 MHz\\n' "$(cat "$RUN/$2.driver")"; }
@@ -14,7 +16,8 @@ ap_control() {
  case "$c" in
  status) cat "$RUN/$i";;
  chan_switch)
- # Real regression: hostapd reports target, driver remains on old channel.
+ # B28 reports target while driver remains old; B31 native CSA moves both.
+ [ ! -f "$RUN/native" ] || printf '%s\\n' "$2" > "$RUN/$i.driver"
  sed "s/^freq=.*/freq=$2/" "$RUN/$i" > "$RUN/$i.next";mv "$RUN/$i.next" "$RUN/$i";echo OK;;
  disable) sed 's/^state=.*/state=DISABLED/' "$RUN/$i" > "$RUN/$i.next";mv "$RUN/$i.next" "$RUN/$i";echo OK;;
  set)
@@ -59,4 +62,19 @@ ap_control() {
  (p/'stuck').unlink();reset();(p/'reject').touch()
  assert run('radio_align 2437').returncode!=0
  assert (p/'radio-wlan0').exists() and 'state=ENABLED' in (p/'wlan0').read_text(),'failed setter must recover AP'
- print('PASS: real driver confirmation, no CSA, two bands, no-op, original geometry restore, malformed/DFS rejection and failure recovery')
+ (p/'reject').unlink();reset();assert run('radio_align 5220').returncode==0
+ (p/'wlan2').write_text((p/'wlan2').read_text().replace('ENABLED','DISABLED'))
+ assert run('radio_restore').returncode==0 and 'state=ENABLED' in (p/'wlan2').read_text()
+ assert (p/'wlan2.driver').read_text().strip()=='5180' and not (p/'radio-wlan2').exists()
+ reset();assert run('radio_align 5220').returncode==0
+ (p/'wlan2').write_text((p/'wlan2').read_text().replace('ENABLED','DISABLED'));(p/'reject').touch()
+ assert run('radio_restore').returncode!=0 and (p/'radio-wlan2').exists()
+ (p/'reject').unlink();reset();assert run('radio_align 5220').returncode==0
+ (p/'wlan2').write_text((p/'wlan2').read_text().replace('ENABLED','DISABLED'));(p/'wifi-5g-policy').write_text('off')
+ assert run('radio_restore').returncode==0 and 'state=DISABLED' in (p/'wlan2').read_text() and (p/'radio-wlan2').exists()
+ (p/'wifi-5g-policy').unlink();assert run('radio_restore').returncode==0 and not (p/'radio-wlan2').exists()
+ reset();(p/'native').touch();(p/'compat-mode').write_text('b31-ui-first\n')
+ count=len((p/'sets').read_text().splitlines());assert run('radio_align 5745').returncode==0
+ assert (p/'wlan2.driver').read_text().strip()=='5745' and len((p/'sets').read_text().splitlines())==count
+ assert run('radio_restore').returncode==0 and (p/'wlan2.driver').read_text().strip()=='5180'
+ print('PASS: real driver confirmation, B28 stopped-BSS and B31 native CSA, two bands, no-op, original geometry restore, malformed/DFS rejection and failure recovery')

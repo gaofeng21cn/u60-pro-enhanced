@@ -62,9 +62,9 @@ esac
   reset();state['scan_fail']=True;assert not run('scan')['ok'];assert enabled.exists() and 'off' not in calls()
   args={'ssid':'Synthetic upstream','password':'synthetic-test-only','security':'WPA2','bssid':'00:11:22:33:44:55','frequency':5220}
   reset();assert not run('connect',dict(args,password='short'))['ok'];assert not calls() and enabled.exists()
-  reset();assert run('connect',args)['ok'];assert calls()==['off','prepare','align','enable'] and state['saved'] and enabled.exists()
-  reset();state['completed']=False;r=run('connect',args);assert not r['ok'];assert calls()==['off','prepare','align','off','on'] and not state['saved'] and enabled.exists()
-  reset();(d/'fail-prepare').touch();assert not run('connect',args)['ok'];assert calls()==['off','prepare','off','on'] and not state['saved'] and enabled.exists()
+  reset();assert run('connect',args)['ok'];assert calls()==['pause','prepare','align','enable'] and state['saved'] and enabled.exists()
+  reset();state['completed']=False;r=run('connect',args);assert not r['ok'];assert calls()==['pause','prepare','align','pause','on'] and not state['saved'] and enabled.exists()
+  reset();(d/'fail-prepare').touch();assert not run('connect',args)['ok'];assert calls()==['pause','prepare','pause','on'] and not state['saved'] and enabled.exists()
   (d/'fail-prepare').unlink();reset();requests.clear()
   state['candidates']='00:11:22:33:44:56\t5220\t-25\t[WPA2-PSK-CCMP][ESS]\tSynthetic upstream\n'
   assert not run('coordinate')['ok'];assert not calls() and not state['saved']

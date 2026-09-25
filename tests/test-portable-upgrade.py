@@ -59,7 +59,7 @@ class PortableUpgrade(unittest.TestCase):
                  hashlib.sha256(b'u60-imei-v1:123456789012345').hexdigest() + '\n')
         for f in ['check-device.sh', 'upgrade-installed.sh']:
             code = (ROOT / 'scripts/portable' / f).read_text()
-            for prefix in ['/data/', '/etc/', '/sys/', '/dev/dri/', '/dev/net/', '/tmp/']:
+            for prefix in ['/data/', '/etc/', '/sys/', '/dev/dri/', '/dev/net/', '/tmp/', '/proc/']:
                 code = re.sub(r'(?<![a-zA-Z0-9_.-])' + re.escape(prefix), str(self.target) + prefix, code)
             self.put(self.pkg / f, code)
         # A realistic installed tree: programs from an older release plus user state.
@@ -286,6 +286,23 @@ else:
         # The old bytes stay available for a manual rollback.
         self.assertEqual((backup / 'data/u60-panel/u60-panel').read_text(),
                          self.programs['data/u60-panel/u60-panel'])
+
+    def test_different_running_core_refused_before_backup(self):
+        core=self.target/'data/u60-clash/mihomo'
+        proc=self.target/'proc/54321';proc.mkdir(parents=True);(proc/'exe').symlink_to(core)
+        self.put(self.pkg/'payload/data/u60-clash/mihomo','different core bytes')
+        self.hash_package()
+        result=self.run_upgrade('--check')
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('different network core',result.stderr)
+        self.assertFalse((self.target/'data/u60-upgrade-backups').exists())
+
+    def test_identical_executables_keep_their_inode(self):
+        paths=[self.target/'data/u60-clash/mihomo',self.target/'data/tailscale/bin/tailscaled']
+        before=[p.stat().st_ino for p in paths]
+        result=self.run_upgrade('upgrade')
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertEqual(before,[p.stat().st_ino for p in paths])
 
     def test_failed_verification_restores_the_previous_programs(self):
         # The window between "files replaced" and "verified" is exactly where an

@@ -47,6 +47,9 @@ if 'router_smart_wan_event' in args and not (p/'native-fail').exists():
  (p/'config.json').write_text(json.dumps(d))
 ''')
         self.cmd('flock', '#!/bin/sh\nexit 0\n')
+        service=self.panel/'test-service'
+        service.write_text('#!/bin/sh\ncase "$1" in\n running) [ -f "$TEST_ROOT/service-running" ];;\n start) [ ! -f "$TEST_ROOT/service-fail" ] || exit 1;touch "$TEST_ROOT/service-running";;\n stop) rm -f "$TEST_ROOT/service-running";;\nesac\n')
+        service.chmod(0o700);self.env['USB_SERVICE']=str(service)
         self.cmd('ip', '''#!/bin/sh
 case "$*" in
  *route*default*) if [ -f "$TEST_ROOT/route-ready" ]; then echo 'default via 10.0.0.1 dev rmnet_data0'; fi;;
@@ -171,10 +174,22 @@ esac
         self.assertNotEqual(self.run_role('set','WAN;reboot').returncode,0)
         self.assertFalse((self.panel/'usb-role').exists())
 
-    def test_set_is_fast_request_not_synchronous_mode_change(self):
+    def test_set_starts_owner_without_synchronous_mode_change(self):
         self.adapter();r=self.run_role('set','AUTO');self.assertEqual(r.returncode,0,r.stderr)
         self.assertEqual((self.panel/'usb-role').read_text().strip(),'AUTO')
         self.assertFalse((self.root/'writes').exists())
+        self.assertTrue((self.root/'service-running').exists())
+        self.assertTrue((self.panel/'usb-managed').exists())
+
+    def test_service_failure_restores_choice(self):
+        self.adapter('0');(self.panel/'usb-role').write_text('LAN\n');(self.root/'service-fail').touch()
+        result=self.run_role('set','AUTO');self.assertNotEqual(result.returncode,0);self.assertFalse(json.loads(result.stdout)['ok'])
+        self.assertEqual((self.panel/'usb-role').read_text(),'LAN\n');self.assertFalse((self.panel/'usb-managed').exists())
+        self.assertFalse((self.root/'service-running').exists())
+
+    def test_status_exposes_saved_intent_without_owner(self):
+        (self.panel/'usb-managed').touch();(self.panel/'usb-role').write_text('LAN\n')
+        result=json.loads(self.run_role('status').stdout);self.assertEqual(result['state'],'SERVICE_DOWN');self.assertFalse(result['service_running'])
 
     def test_debounce_before_probe(self):
         self.adapter();(self.panel/'usb-role').write_text('AUTO')

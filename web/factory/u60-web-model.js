@@ -21,7 +21,7 @@
  }
  // Web-only presentation: keep additions; stock controls stay in the stock pages.
  var additions={
-  wifi:['relay','relay-scan'],usb:['role','status','macnet.mode','macnet.link','macnet.help','wiring'],
+  wifi:['relay','relay-scan','relay-health','relay-fallback','relay-autostart','relay-forget'],usb:['role','status','macnet.mode','macnet.link','macnet.help','wiring'],
   battery:['charge.manual','charge.policy','usb.power_role','power.standby','usb.charge_state','charge.connected','charge.temp','charge.voltage','charge.current','charge.policy_status','power.standby_state'],
   band:['band.lte','band.sa','band.nsa','wan_active_band','nr5g_action_band','nr5g_pci','nr5g_action_channel'],
   signal:['signal.serving','signal.neighbors'],diagnostics:['diag.web']

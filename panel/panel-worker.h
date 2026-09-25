@@ -17,7 +17,7 @@ static int worker_start(const cJSON *request,int action) {
  close(in[0]);close(out[1]);size_t n=strlen(wire),at=0;
  while(at<n){ssize_t w=write(in[1],wire+at,n-at);if(w<0&&errno==EINTR)continue;if(w<=0)break;at+=(size_t)w;}
  memset(wire,0,n);free(wire);close(in[1]);fcntl(out[0],F_SETFL,O_NONBLOCK);
- pw.pid=p;pw.fd=out[0];pw.action=action;pw.started=now_ms();const cJSON*cv=cJSON_GetObjectItemCaseSensitive(request,"action");const char*command=cJSON_IsString(cv)?cv->valuestring:"";pw.timeout=action&&!strncmp(command,"wifi.relay.",11)?120000:action&&(!strcmp(command,"wifi.power")||!strcmp(command,"wifi.ap"))?105000:action&&!strcmp(command,"network.tailscale_mode")?75000:45000;pw.buf=malloc(WORKER_CAP+1);pw.used=0;
+ pw.pid=p;pw.fd=out[0];pw.action=action;pw.started=now_ms();const cJSON*cv=cJSON_GetObjectItemCaseSensitive(request,"action");const char*command=cJSON_IsString(cv)?cv->valuestring:"";pw.timeout=action&&!strncmp(command,"wifi.relay.",11)?220000:action&&(!strcmp(command,"wifi.power")||!strcmp(command,"wifi.ap"))?105000:action&&!strcmp(command,"network.tailscale_mode")?75000:45000;pw.buf=malloc(WORKER_CAP+1);pw.used=0;
  if(!pw.buf||at<n){worker_clear(1);return 0;}return 1;
 }
 static void live_num(cJSON *o,const char*k,double value){cJSON_DeleteItemFromObjectCaseSensitive(o,k);cJSON_AddNumberToObject(o,k,value);}
@@ -55,7 +55,7 @@ static void shell_dispatch(struct app *a,const char *action,cJSON *args){
  }
  if(pw.pid&&!pw.action)worker_clear(1);
  cJSON *r=cJSON_CreateObject();cJSON_AddStringToObject(r,"action",action);cJSON_AddItemToObject(r,"args",args?cJSON_Duplicate(args,1):cJSON_CreateObject());
- if(worker_start(r,1)){a->shell.busy=1;snprintf(a->shell.status,sizeof(a->shell.status),"正在应用，请稍候…");}else snprintf(a->shell.status,sizeof(a->shell.status),"无法启动控制服务");a->shell.status_until=now_ms()+8000;cJSON_Delete(r);
+ if(worker_start(r,1)){a->shell.busy=1;snprintf(a->shell.status,sizeof(a->shell.status),"%s",!strcmp(action,"wifi.relay.scan")?"正在扫描附近网络，请稍候…":!strcmp(action,"wifi.relay.connect")?"正在连接；热点恢复可能需要约一分钟…":"正在应用，请稍候…");}else snprintf(a->shell.status,sizeof(a->shell.status),"无法启动控制服务");a->shell.status_until=now_ms()+8000;cJSON_Delete(r);
 }
 static void shell_factory(struct app *a){(void)a;g_stop=1;}
 static void shell_power(struct app *a,int reboot){cJSON *args=cJSON_CreateObject();cJSON_AddBoolToObject(args,"reboot",reboot);shell_dispatch(a,"system.power",args);cJSON_Delete(args);}
@@ -66,7 +66,7 @@ static int worker_poll(struct app *a){
   int eof=0,fail=0;for(;;){ssize_t n=read(pw.fd,pw.buf+pw.used,WORKER_CAP-pw.used);if(n>0){pw.used+=(size_t)n;if(pw.used>=WORKER_CAP){fail=1;break;}}else{if(n==0)eof=1;else if(errno!=EAGAIN&&errno!=EWOULDBLOCK&&errno!=EINTR)fail=1;break;}}
   if(now_ms()-pw.started>pw.timeout)fail=1;
   if(eof||fail){pw.buf[pw.used]=0;cJSON*r=!fail?cJSON_Parse(pw.buf):NULL;
-   if(pw.action){a->shell.busy=0;a->shell.status_until=now_ms()+8000;snprintf(a->shell.status,sizeof(a->shell.status),"%s",r&&jstr(r,"message")[0]?jstr(r,"message"):"操作超时或结果未知，请刷新核对");next_snapshot=0;if(r&&cJSON_IsObject(cJSON_GetObjectItem(r,"picker")))sh_open_item(a,cJSON_GetObjectItem(r,"picker"));else if(r&&cJSON_IsObject(cJSON_GetObjectItem(r,"report")))sh_show_report(a,cJSON_GetObjectItem(r,"report"));}
+   if(pw.action){sh_action_result(a,r);next_snapshot=0;}
    else if(r&&cJSON_IsObject(cJSON_GetObjectItem(r,"data"))&&cJSON_IsArray(cJSON_GetObjectItem(r,"sections"))){
     /* The slow service snapshot does not sample the physical route. Preserve
      * fields owned by sample_local until its next tick; otherwise every refresh

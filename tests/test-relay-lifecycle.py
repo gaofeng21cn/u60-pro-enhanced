@@ -17,6 +17,8 @@ with tempfile.TemporaryDirectory() as td:
         (private / 'station').touch()
         code = '''
 set -eu
+guard_refresh() { :; }
+health_check() { :; }
 allowed() { [ "$SCENARIO" != policy ]; }
 prepare() { return 1; }
 stop_dhcp() { :; }

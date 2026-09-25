@@ -96,6 +96,17 @@ AVAIL=$(df -k /data | awk 'END {print $(NF-2)}')
 case "$AVAIL" in ''|*[!0-9]*) fail 'Cannot read available data space';; esac
 [ "$AVAIL" -gt $((NEED * 2 + 8192)) ] || fail 'Not enough free space in /data for the upgrade backup'
 
+# No core restart is hidden inside a UI/program upgrade. A different live core
+# needs its own controlled stop/start; refuse it before creating a backup.
+for core in u60-clash/mihomo tailscale/bin/tailscaled;do
+ if [ "$(sha256sum "/data/$core" | cut -d ' ' -f 1)" != "$(sha256sum "payload/data/$core" | cut -d ' ' -f 1)" ];then
+  for exe in /proc/[0-9]*/exe;do
+   link=$(readlink "$exe" 2>/dev/null || true)
+   case "$link" in "/data/$core"|"/data/$core (deleted)") fail 'A different network core is running; stop it through its UI before upgrading';; esac
+  done
+ fi
+done
+
 if [ "$ACTION" = --check ]; then
  echo 'PASS: firmware, package, existing installation and device identity verified'
  echo "Would replace $(printf '%s\n%s\n' "$PLAN" "$INIT_PLAN" | grep -c .) files plus the boot hook; user configuration is preserved"
@@ -114,7 +125,9 @@ restore_tree() {
  while IFS= read -r rel; do
   [ -n "$rel" ] || continue
   [ -f "$BACKUP/data/$rel" ] || return 1
-  cp -p "$BACKUP/data/$rel" "/data/$rel"
+  if [ "$(sha256sum "$BACKUP/data/$rel" | cut -d ' ' -f 1)" != "$(sha256sum "/data/$rel" | cut -d ' ' -f 1)" ];then
+   cp -p "$BACKUP/data/$rel" "/data/$rel.restore" && mv "/data/$rel.restore" "/data/$rel" || return 1
+  fi
  done <<EOF
 $PLAN
 EOF
@@ -184,6 +197,10 @@ CHANGED=1
 
 install_one() {
  dst=$1; src=$2; mode=$3
+ # Preserve the inode of unchanged live executables, sockets' owners and assets.
+ if [ "$(sha256sum "$dst" | cut -d ' ' -f 1)" = "$(sha256sum "$src" | cut -d ' ' -f 1)" ];then
+  chmod "$mode" "$dst";return 0
+ fi
  cp "$src" "$dst.next"
  chmod "$mode" "$dst.next"
  mv "$dst.next" "$dst"

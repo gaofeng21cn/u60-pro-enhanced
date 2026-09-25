@@ -71,7 +71,7 @@ static void job_tick(struct uloop_timeout *t){
   if(job.exited&&job.fd<0){job.output[job.used]=0;
    cJSON*r=cJSON_Parse(job.output);int valid=WIFEXITED(job.exit_status)&&WEXITSTATUS(job.exit_status)==0&&cJSON_IsObject(r);cJSON_Delete(r);
    if(!valid)job_fail("Controller failed; refresh state before retrying");else {job.done=1;job.finished=now_ms();}
-  }else if(now_ms()-job.began>130000)job_fail("Operation timed out; refresh state before retrying");
+  }else if(now_ms()-job.began>230000)job_fail("Operation timed out; refresh state before retrying");
  }
  p_uloop_timeout_set(&tick,job.done?1000:100);
 }

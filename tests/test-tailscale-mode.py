@@ -104,6 +104,12 @@ class ModeTests(unittest.TestCase):
  def kills(self):return (self.root/'kills').read_text().splitlines() if (self.root/'kills').exists() else []
  def starts(self):return [json.loads(x) for x in (self.root/'starts.jsonl').read_text().splitlines()] if (self.root/'starts.jsonl').exists() else []
  def evidence(self,r):return json.dumps({'reply':r,'starts':self.starts(),'kills':self.kills(),'proc':sorted(p.name for p in (self.root/'proc').iterdir())})
+ def test_identical_deleted_core_retains_exact_scope(self):
+  core=self.root/'data/tailscale/bin/tailscaled';old=core.with_name('tailscaled (deleted)');old.write_bytes(core.read_bytes())
+  exe=self.root/'proc/80001/exe';exe.unlink();exe.symlink_to(old)
+  r=self.run_mode('status');self.assertTrue(r['running']);self.assertEqual(self.starts(),[])
+  old.write_text('different old binary');r=self.run_mode('status');self.assertFalse(r['running'])
+
  def test_migrate_tun_preserves_prefs(self):
   original=json.dumps(self.config['prefs'],sort_keys=True);r=self.run_mode('tun');self.assertTrue(r['ok']);self.assertEqual(r['mode'],'tun');self.assertTrue(r['running']);self.assertTrue(r['tun_ready']);self.assertEqual(r['configured_mode'],'tun');self.assertEqual(self.kills(),['80001']);self.assertEqual(json.dumps(self.config['prefs'],sort_keys=True),original)
   argv=self.starts()[0];self.assertIn('--port=41641',argv);self.assertIn('--no-logs-no-support',argv);self.assertFalse(any('auth' in x for x in argv));self.assertEqual(len(self.starts()),1)

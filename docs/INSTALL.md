@@ -23,7 +23,7 @@ macOS/Linux 使用终端；Windows 可用 Python 3 与 `adb.exe`，Windows 完�
 
 ### 从本仓库源码构建
 
-本仓库当前没有公开发布的安装包。构建依赖 Zig 0.14.1、Go、Python 3 和 Git，主机测试还需 C 编译器和 Node.js。**请显式使用 Zig 0.14.1**：0.16 会构建失败。
+可下载本仓库 [v0.1.4-experimental 安装包](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.4-experimental)，下载用户不需要编译器。以下是开发者构建方式。构建依赖 Zig 0.14.1、Go、Python 3 和 Git，主机测试还需 C 编译器和 Node.js。**请显式使用 Zig 0.14.1**：0.16 会构建失败。
 
 ```sh
 sh scripts/build.sh
@@ -33,16 +33,16 @@ python3 scripts/package.py
 
 工具链不在 PATH 时用 `ZIG=/path/to/zig GO=/path/to/go sh scripts/build.sh` 指定。`scripts/package.py` 在 `dist/` 下生成安装包目录和同名 `.tar.gz`；目录已存在时会拒绝重建，需先自行检查并移走旧目录。`test.sh` 只证明主机回归，不代替实机验收，可以按需跳过。
 
-### 使用上游 Release
+### 下载预编译安装包
 
-上游 [v0.1.3 Release](https://github.com/defilippisprafka-netizen/u60-pro-enhanced/releases/tag/v0.1.3-experimental) 提供现成的 B28 安装包，不支持 B31。解压后得到的目录结构与本仓库构建产物一致，后续步骤相同。
+下载本仓库 Release 附件中的 tar.gz 与 SHA256SUMS.txt，校验后解压。不要下载自动生成的 Source code 作为安装材料；上游 B28 安装包不能用于 B31。
 
 ## 准备（只读设备）
 
 先进入安装包目录。本仓库构建产物位于 `dist/u60-pro-enhanced-<版本>/`（构建后可用 `ls dist/` 查看实际目录名），使用上游 Release 时就是解压出来的同名目录。
 
 ```sh
-cd dist/u60-pro-enhanced-v0.1.3-experimental
+cd dist/u60-pro-enhanced-v0.1.4-experimental
 python3 prepare.py
 ```
 
@@ -74,11 +74,13 @@ python3 deploy-from-computer.py install
 python3 deploy-from-computer.py start
 ```
 
-`check` 把本地经过校验的安装材料上传到 `/data/u60-packages/` 并只读检查兼容性；`install` 写入新程序与启动项、保存原厂 `/etc/rc.local`，但此时不启动服务；`start` 才启动屏幕与网页扩展。B31 首阶段只自动启动双击电源键切换与网页增强，USB 网口、Wi-Fi 中继和待机等网络协调服务保持停用；B28 保持原有启动行为。校验失败不要强制继续。
+`check` 把本地经过校验的安装材料上传到 `/data/u60-packages/` 并只读检查兼容性；`install` 写入新程序与启动项、保存原厂 `/etc/rc.local`，但此时不启动服务；`start` 才启动屏幕与网页扩展。B31 首装仅启动屏幕与网页；用户主动选择 USB 角色后启动协调服务并保存启用意图，接力按独立的开机连接选项恢复。默认仍不启用深度待机；B28 保持原有基础启动行为。校验失败不要强制继续。
 
 先实际测试屏幕、电源键、原厂网页和原有热点，再分别验证网络功能。
 
 初始不含运行中的 Clash 配置或 Tailscale 身份。充电能力与 Wi-Fi 密码加密写入能力没有移植开发机验收标记；相应按钮可能显示“待验证”并拒绝操作，这是公开版本明确保留的限制。不要从他人设备复制验证标记。
+
+升级时字节相同的网络核心保留运行 inode；若新版需要更换正在运行的网络核心，检查会拒绝，需先通过界面停止相应核心再升级，升级后按原有方式启用。
 
 ## Clash 首次使用
 

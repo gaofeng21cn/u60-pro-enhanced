@@ -2,6 +2,7 @@
 START=99
 STOP=01
 USE_PROCD=1
+boot() { /data/u60-panel/wifi-relay.sh boot; }
 start_service() {
  [ -f /data/u60-panel/relay-private/enabled ] || return 0
  procd_open_instance

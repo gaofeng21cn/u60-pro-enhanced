@@ -15,6 +15,7 @@ SELF=${USB_SELF:-$ROOT/usb-role.sh}
 DHCP_EVENT=${USB_DHCP_EVENT:-$ROOT/usb-dhcp-event.sh}
 UDHCPC=${USB_UDHCPC:-udhcpc}
 CELLULAR=${USB_CELLULAR_HELPER:-$ROOT/usb-cellular-route.sh}
+SERVICE=${USB_SERVICE:-$BASE/etc/init.d/u60-usb-role}
 mkdir -p "$RUN"
 get() { "$UCI" -q get "$1" 2>/dev/null; }
 requested() {
@@ -265,12 +266,30 @@ set_request() {
  if [ "$1" = LAN ] && [ "$(get zwrt_router.network.opms_wan_mode)" != PPP ] && link_up; then
   echo '{"ok":false,"message":"请先拔网线，再切换 LAN 接电脑"}'; return 2
  fi
- # Protect before persisting AUTO: works even before the watcher gets its turn.
+ # Persist intent only when its procd owner can actually run. The controller
+ # keeps this request serialized with other user settings.
+ previous=$(requested);managed=0;[ ! -f "$ROOT/usb-managed" ] || managed=1
+ running=0;"$SERVICE" running >/dev/null 2>&1 && running=1
  if [ "$1" = AUTO ]; then isolate_bridge || { echo '{"ok":false,"message":"网口隔离未就绪"}'; return 1; }; fi
  printf '%s\n' "$1" > "$ROOT/usb-role.$$" && mv "$ROOT/usb-role.$$" "$ROOT/usb-role" || return 1
- rm -f "$RUN/suspended"
- phase SWITCHING
- echo '{"ok":true,"message":"已保存，正在切换；以网口状态为准"}'
+ touch "$ROOT/usb-managed";rm -f "$RUN/suspended";phase SWITCHING
+ if [ "$running" = 0 ];then "$SERVICE" start >/dev/null 2>&1 || :;fi
+ ready=0;n=0
+ while [ "$n" -lt 10 ];do
+  if "$SERVICE" running >/dev/null 2>&1;then ready=1;break;fi
+  n=$((n+1));sleep .2
+ done
+ if [ "$ready" = 0 ];then
+  # Stop a late starting owner before undoing its requested state.
+  [ "$running" = 1 ] || "$SERVICE" stop >/dev/null 2>&1 || :
+  printf '%s\n' "$previous" > "$ROOT/usb-role.$$" && mv "$ROOT/usb-role.$$" "$ROOT/usb-role"
+  [ "$managed" = 1 ] || rm -f "$ROOT/usb-managed"
+  if [ "$previous" = LAN ] && [ "$(get zwrt_router.network.opms_wan_mode)" = PPP ];then release_bridge;fi
+  phase SERVICE_DOWN
+  echo '{"ok":false,"message":"网口协调服务未启动，已恢复原选择；请重试"}';return 1
+ fi
+ echo '{"ok":true,"message":"协调服务已运行，选择已保存；实际接线与角色请看网口状态"}'
+
 }
 status() {
  req=$(requested); current=$(cat "$RUN/phase" 2>/dev/null || true)
@@ -289,10 +308,12 @@ status() {
    gateway=$(default4 | awk '/ dev eth0/{print $3;exit}')
   else state=DETECTING; badge=WAIT; message='正在识别上级网络'; fi
  fi
- case "$current" in RESTORING) state=RESTORING;badge=WAIT;message='正在恢复蜂窝网络';; SWITCHING) state=SWITCHING;badge=WAIT;message='正在切换网口角色';; UNPLUG) state=UNPLUG;badge=ERROR;message='请先拔网线，再切换 LAN';; NO_UPSTREAM) state=NO_UPSTREAM;badge=WAIT;message='未获取上级地址，继续使用蜂窝';; CONFLICT) state=CONFLICT;badge=ERROR;message='上级与 U60 内网地址冲突';; ERROR) state=ERROR;badge=ERROR;message='切换未完成，请查看网线或改用 LAN';; esac
- if [ "$adapter" = false ] && [ "$req" = AUTO ]; then message='未接网卡 · 使用蜂窝'; fi
+ service=false;"$SERVICE" running >/dev/null 2>&1 && service=true
+ if [ -f "$ROOT/usb-managed" ] && [ "$service" = false ];then current=SERVICE_DOWN;fi
+ case "$current" in SERVICE_DOWN) state=SERVICE_DOWN;badge=ERROR;message="协调服务未运行，已保存选择尚未应用";; RESTORING) state=RESTORING;badge=WAIT;message='正在恢复蜂窝网络';; SWITCHING) state=SWITCHING;badge=WAIT;message='正在切换网口角色';; UNPLUG) state=UNPLUG;badge=ERROR;message='请先拔网线，再切换 LAN';; NO_UPSTREAM) state=NO_UPSTREAM;badge=WAIT;message='未获取上级地址，继续使用蜂窝';; CONFLICT) state=CONFLICT;badge=ERROR;message='上级与 U60 内网地址冲突';; ERROR) state=ERROR;badge=ERROR;message='切换未完成，请查看网线或改用 LAN';; esac
+ if [ "$adapter" = false ] && [ "$req" = AUTO ] && [ "$state" != SERVICE_DOWN ]; then message='未接网卡 · 使用蜂窝'; fi
  case "$ipv4$gateway" in *[!0-9.]*) ipv4='';gateway='';state=ERROR;badge=ERROR;; esac
- printf '{"ok":true,"requested":"%s","state":"%s","adapter":%s,"link":%s,"ipv4":"%s","gateway":"%s","badge":"%s","message":"%s"}\n' "$req" "$state" "$adapter" "$link" "$ipv4" "$gateway" "$badge" "$message"
+ printf '{"ok":true,"requested":"%s","service_running":%s,"state":"%s","adapter":%s,"link":%s,"ipv4":"%s","gateway":"%s","badge":"%s","message":"%s"}\n' "$req" "$service" "$state" "$adapter" "$link" "$ipv4" "$gateway" "$badge" "$message"
 }
 case "${1:-status}" in
  status) status;;

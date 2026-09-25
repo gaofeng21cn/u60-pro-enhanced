@@ -63,33 +63,51 @@ radio_configure() (
   [ "$(ap_control "$interface" set "$key" "$value")" = OK ] || exit 1
  done
 )
+radio_wait() (
+ interface=$1;expected=$2;tries=0
+ while [ "$tries" -lt 72 ];do
+  actual=$(ap_control "$interface" status)
+  state=$(printf '%s\n' "$actual" | sed -n 's/^state=//p')
+  freq=$(printf '%s\n' "$actual" | sed -n 's/^freq=//p')
+  driver=$(radio_driver_frequency "$interface")
+  [ "$state:$freq:$driver" != "ENABLED:$expected:$expected" ] || exit 0
+  # Factory 160 MHz geometry can require DFS CAC during restoration.
+  case "$state" in DFS|HT_SCAN|ACS|COUNTRY_UPDATE) :;; *) [ "$tries" -lt 4 ] || exit 1;; esac
+  tries=$((tries+1));sleep 1
+ done
+ exit 1
+)
+radio_recover() (
+ interface=$1;shift
+ radio_args "$@" >/dev/null || exit 1
+ ap_control "$interface" disable >/dev/null
+ if ! radio_configure "$interface" "$@";then ap_control "$interface" enable >/dev/null;exit 1;fi
+ [ "$(ap_control "$interface" enable)" = OK ] || exit 1
+ radio_wait "$interface" "$1"
+)
+radio_native() { [ "$(cat "$ROOT/compat-mode" 2>/dev/null)" = b31-ui-first ]; }
+radio_switch() (
+ interface=$1;shift
+ params=$(radio_args "$@") || exit 1
+ [ "$(ap_control "$interface" chan_switch $params)" = OK ] || exit 1
+ radio_wait "$interface" "$1"
+)
 radio_apply() (
  interface=$1;shift
  radio_args "$@" >/dev/null || exit 1
  before=$(ap_control "$interface" status);original=$(radio_geometry "$before")
  [ -n "$original" ] || exit 1
- # B28 reports CSA completion before firmware completes it; subsequent key
- # installation fails. Reconfigure a stopped BSS instead, without rewriting UCI.
- [ "$(ap_control "$interface" disable)" = OK ] || exit 1
- if ! radio_configure "$interface" "$@";then
-  radio_configure "$interface" $original || :
-  ap_control "$interface" enable >/dev/null
+ # Accepting ENABLE is not success: require driver and BSS readback. On any
+ # failure restore the initial geometry, even if the BSS is now DISABLED.
+ if radio_native;then
+  # B31 firmware resets width during DISABLE/ENABLE; native CSA preserves the
+  # requested geometry. B28 must retain stopped-BSS coordination instead.
+  if radio_switch "$interface" "$@";then exit 0;fi
+  radio_switch "$interface" $original || :
   exit 1
  fi
- if [ "$(ap_control "$interface" enable)" != OK ];then
-  radio_configure "$interface" $original || :
-  ap_control "$interface" enable >/dev/null
-  exit 1
- fi
- tries=0
- while [ "$tries" -lt 12 ];do
-  actual=$(ap_control "$interface" status)
-  state=$(printf '%s\n' "$actual" | sed -n 's/^state=//p')
-  freq=$(printf '%s\n' "$actual" | sed -n 's/^freq=//p')
-  driver=$(radio_driver_frequency "$interface")
-  [ "$state:$freq:$driver" != "ENABLED:$1:$1" ] || exit 0
-  tries=$((tries+1));sleep .25
- done
+ if radio_recover "$interface" "$@";then exit 0;fi
+ radio_recover "$interface" $original || :
  exit 1
 )
 radio_lock() {
@@ -131,10 +149,21 @@ radio_restore() (
   snapshot="$RUN/radio-$interface";[ -f "$snapshot" ] || continue
   old=$(cat "$snapshot");case "$old" in ''|*[!0-9\ -]*) result=1;continue;; esac
   before=$(ap_control "$interface" status)
-  if [ "$(printf '%s\n' "$before" | sed -n 's/^state=//p')" = ENABLED ];then
-   current=$(printf '%s\n' "$before" | sed -n 's/^freq=//p')
-   driver=$(radio_driver_frequency "$interface")
-   if [ "$current:$driver" != "${old%% *}:${old%% *}" ];then radio_apply "$interface" $old || { result=1;continue; };fi
+  state=$(printf '%s\n' "$before" | sed -n 's/^state=//p')
+  # Explicit OFF and factory sleep take precedence over failure recovery.
+  # Retain the snapshot for a later awake/on operation rather than waking a BSS.
+  if [ "$state" != ENABLED ];then
+   band=2g;[ "$interface" != wlan2 ] || band=5g
+   [ "$(setting wireless.zte_mbb.wifi_onoff)" != 0 ] || continue
+   [ "$(cat "$ROOT/wifi-$band-policy" 2>/dev/null)" != off ] || continue
+   if [ -x "$ROOT/panel-standby" ] && "$ROOT/panel-standby" blocked;then continue;fi
+  fi
+  current=$(printf '%s\n' "$before" | sed -n 's/^freq=//p')
+  driver=$(radio_driver_frequency "$interface")
+  if [ "$state:$current:$driver" != "ENABLED:${old%% *}:${old%% *}" ];then
+   if radio_native && [ "$state" = ENABLED ];then
+    radio_switch "$interface" $old || { result=1;continue; }
+   else radio_recover "$interface" $old || { result=1;continue; };fi
   fi
   rm -f "$snapshot"
  done
@@ -199,7 +228,7 @@ withdraw() (
  exec 9>"$RUN/lease.lock";flock 9
  ip -4 route del default dev u60sta metric 50 2>/dev/null || :
  if [ -f "$RUN/ipv6-block" ];then ip -6 route del unreachable default metric 50 2>/dev/null || :;rm -f "$RUN/ipv6-block";fi
- rm -f "$RUN/lease-ready"
+ rm -f "$RUN/lease-ready" "$RUN/health" "$RUN/health-at"
 )
 remove_rules() {
  while ipt -D INPUT -i u60sta -j U60_RELAY_IN;do :;done
@@ -218,6 +247,65 @@ stop_dhcp() {
  rm -f "$RUN/dhcp.pid"
 }
 cleanup() { rm -f "$RUN/enabled";stop_dhcp;withdraw;wpa driver SETROAMMODE 0 >/dev/null || :;wpa terminate >/dev/null || :;[ ! -e /sys/class/net/u60sta ] || iw dev u60sta del;remove_rules;radio_restore || :;rm -f "$RUN/enabled"; }
+# Only the relay owner manages these rules. Block both forwarded clients and
+# local proxy/DoH egress; a FORWARD-only rule would miss transparent proxies.
+fallback_policy() { value=$(cat "$PRIVATE/fallback" 2>/dev/null || :);[ "$value" = wifi-only ] && echo wifi-only || echo cellular; }
+autostart_policy() { [ "$(cat "$PRIVATE/autostart" 2>/dev/null || echo 1)" = 0 ] && echo 0 || echo 1; }
+cell_guard() {
+ mode=$1
+ for family in iptables ip6tables;do
+  for chain in OUTPUT FORWARD;do
+   if [ "$mode" = block ];then
+    "$family" -w 2 -C "$chain" -o rmnet+ -m comment --comment u60-relay-no-cell -j REJECT >/dev/null 2>&1 ||
+    "$family" -w 2 -I "$chain" 1 -o rmnet+ -m comment --comment u60-relay-no-cell -j REJECT >/dev/null 2>&1 || return 1
+   else
+    while "$family" -w 2 -D "$chain" -o rmnet+ -m comment --comment u60-relay-no-cell -j REJECT >/dev/null 2>&1;do :;done
+   fi
+  done
+ done
+}
+guard_refresh_unlocked() {
+ if [ -f "$PRIVATE/enabled" ] && [ "$(fallback_policy)" = wifi-only ];then cell_guard block;else cell_guard allow;fi
+}
+guard_refresh() (
+ exec 5>"$RUN/policy.lock";flock 5
+ guard_refresh_unlocked
+)
+policy_set() (
+ exec 5>"$RUN/policy.lock";flock 5
+ key=$1;value=$2
+ case "$key:$value" in fallback:cellular|fallback:wifi-only|autostart:0|autostart:1) ;; *) return 2;; esac
+ # Apply a restrictive policy before acknowledging it. Roll back partial rules
+ # when the platform cannot enforce both IP families.
+ if [ "$key:$value" = fallback:wifi-only ] && [ -f "$PRIVATE/enabled" ];then
+  cell_guard block || { [ "$(fallback_policy)" = wifi-only ] || cell_guard allow;exit 1; }
+ fi
+ if ! printf '%s\n' "$value" > "$PRIVATE/$key.next" || ! mv "$PRIVATE/$key.next" "$PRIVATE/$key";then guard_refresh_unlocked;exit 1;fi
+ guard_refresh_unlocked
+)
+# Fixed public 204 probes, bound to STA and bypassing proxy environment. A
+# failed probe is a connectivity observation, never permission to change WAN.
+health_check() (
+ exec 6>"$RUN/health.lock";flock -n 6 || exit 0
+ if [ ! -f "$RUN/lease-ready" ] || ! ip -4 route get 1.1.1.1 2>/dev/null | grep -q 'dev u60sta';then
+  printf 'NO_LINK\n' > "$RUN/health";rm -f "$RUN/health-at";exit 0
+ fi
+ now=$(cut -d . -f 1 /proc/uptime);last=$(cat "$RUN/health-at" 2>/dev/null || echo 0)
+ case "$last" in ''|*[!0-9]*) last=0;; esac
+ [ "$((now-last))" -ge 30 ] || exit 0
+ printf '%s\n' "$now" > "$RUN/health-at"
+ internet=UNREACHABLE
+ for url in http://connectivitycheck.gstatic.com/generate_204 http://cp.cloudflare.com/generate_204;do
+  code=$(curl -q -4 --interface u60sta --noproxy '*' --connect-timeout 2 --max-time 4 --max-filesize 4096 -s -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || :)
+  case "$code" in 204) internet=ONLINE;break;; 200|30[12378]|511) internet=PORTAL;; esac
+ done
+ printf '%s\n' "$internet" > "$RUN/health.next";mv "$RUN/health.next" "$RUN/health"
+)
+service_start() {
+ /etc/init.d/u60-wifi-relay start >/dev/null 2>&1 || return 1
+ n=0;while [ "$n" -lt 10 ];do /etc/init.d/u60-wifi-relay running >/dev/null 2>&1 && return 0;n=$((n+1));sleep .2;done
+ return 1
+}
 status() {
  enabled=false;[ ! -f "$PRIVATE/enabled" ] || enabled=true
  active=false
@@ -228,8 +316,16 @@ status() {
  [ "$active" != true ] || state=CONNECTED
  [ "$active:$state" != false:CONNECTED ] || state=CELLULAR
  frequency=$(wpa status | sed -n "s/^freq=//p");case "$frequency" in ''|*[!0-9]*) frequency=0;; esac
+ health=$(cat "$RUN/health" 2>/dev/null || echo UNKNOWN)
+ case "$health" in ONLINE|PORTAL|UNREACHABLE|NO_LINK|UNKNOWN) ;; *) health=UNKNOWN;; esac
+ [ "$active" = true ] || health=NO_LINK
+ health_at=$(cat "$RUN/health-at" 2>/dev/null || echo 0);health_now=$(cut -d . -f 1 /proc/uptime)
+ case "$health_at" in ''|*[!0-9]*) health_at=0;; esac
+ if [ "$active" = true ] && [ "$((health_now-health_at))" -gt 90 ];then health=UNKNOWN;fi
+ service=false;/etc/init.d/u60-wifi-relay running >/dev/null 2>&1 && service=true
+ [ "$enabled:$service" != true:false ] || state=SERVICE_DOWN
  saved=false;if [ -s "$PRIVATE/wpa.conf" ] && grep -q '^network={' "$PRIVATE/wpa.conf";then saved=true;fi
- printf '{"ok":true,"enabled":%s,"active":%s,"saved":%s,"state":"%s","frequency":%s,"ipv6":"cellular_blocked_while_relay"}\n' "$enabled" "$active" "$saved" "$state" "$frequency"
+ printf '{"ok":true,"enabled":%s,"active":%s,"saved":%s,"state":"%s","frequency":%s,"health":"%s","service_running":%s,"fallback":"%s","autostart":%s,"ipv6":"cellular_blocked_while_relay"}\n' "$enabled" "$active" "$saved" "$state" "$frequency" "$health" "$service" "$(fallback_policy)" "$(autostart_policy)"
 }
 stop_watch() {
  /etc/init.d/u60-wifi-relay stop >/dev/null 2>&1 || :
@@ -241,22 +337,35 @@ stop_watch() {
 }
 case "${1:-}" in
  align) radio_align "${2:-}";;
- rules) firewall;;
+ rules) guard_refresh && firewall;;
+ policy) policy_set "${2:-}" "${3:-}";;
+ health) health_check;;
+ pause)
+  stop_watch || exit 1;cleanup;guard_refresh;;
+ forget)
+  [ ! -f "$PRIVATE/enabled" ] || exit 2
+  stop_watch || exit 1;cleanup
+  rm -f "$PRIVATE/wpa.conf" "$PRIVATE/upstream-band"
+  ;;
+ boot)
+  [ -f "$PRIVATE/enabled" ] || exit 0
+  if [ "$(autostart_policy)" = 0 ];then rm -f "$PRIVATE/enabled";cell_guard allow;exit 0;fi
+  guard_refresh && service_start;;
  status) status;;
  prepare) prepare;;
  scan-stop) [ -f "$PRIVATE/enabled" ] || cleanup;;
  enable)
   printf '1\n' > "$PRIVATE/enabled";touch "$RUN/enabled";phase CONNECTING
-  /etc/init.d/u60-wifi-relay start;;
+  if ! guard_refresh || ! service_start;then rm -f "$PRIVATE/enabled" "$RUN/enabled";/etc/init.d/u60-wifi-relay stop >/dev/null 2>&1 || :;cell_guard allow;phase ERROR;exit 1;fi;;
  on)
   [ -s "$PRIVATE/wpa.conf" ] && grep -q '^network={' "$PRIVATE/wpa.conf" || exit 1
   allowed || exit 1
   printf '1\n' > "$PRIVATE/enabled";touch "$RUN/enabled";phase CONNECTING
-  /etc/init.d/u60-wifi-relay start;;
+  if ! guard_refresh || ! service_start;then rm -f "$PRIVATE/enabled" "$RUN/enabled";/etc/init.d/u60-wifi-relay stop >/dev/null 2>&1 || :;cell_guard allow;phase ERROR;exit 1;fi;;
  off)
   rm -f "$PRIVATE/enabled" "$RUN/enabled"
   stop_watch || exit 1
-  cleanup;phase OFF;;
+  cleanup;cell_guard allow;phase OFF;;
  watch)
   exec 8>"$RUN/watch.lock";flock -n 8 || exit 0
   coordinate_pid=''
@@ -265,6 +374,7 @@ case "${1:-}" in
   tick=0
   while [ -f "$PRIVATE/enabled" ];do
    if [ -f /tmp/u60-standby/asleep ];then sleep 2;continue;fi
+   guard_refresh || { phase ERROR;sleep 5;continue; }
    # Stock sleep or a conflicting official setting must release our radio too.
    # Keep only the saved intent so a later stock wake can reconnect normally.
    if ! allowed; then cleanup;phase POLICY;sleep 5;continue;fi
@@ -290,6 +400,7 @@ case "${1:-}" in
     if wait "$coordinate_pid";then coordinate_pid='';sleep 2
     else coordinate_pid='';cleanup;phase CELLULAR;sleep 10;fi
    fi
+   health_check
    sleep 2
   done;;
  *) exit 2;;

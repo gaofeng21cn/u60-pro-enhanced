@@ -208,7 +208,14 @@ fail_closed() {
 pid_owned() {
 	pid="$1"
 	[ -L "$PROC_ROOT/$pid/exe" ] || return 1
-	[ "$(readlink "$PROC_ROOT/$pid/exe" 2>/dev/null)" = "$CLASH_BIN" ]
+	link=$(readlink "$PROC_ROOT/$pid/exe" 2>/dev/null)
+	[ "$link" != "$CLASH_BIN" ] || return 0
+	# Older upgrades replaced identical executable inodes. Recognize only the
+	# exact owned path and identical running bytes; never adopt a different core.
+	[ "$link" = "$CLASH_BIN (deleted)" ] || return 1
+	running_sha=$(sha256sum "$PROC_ROOT/$pid/exe" 2>/dev/null | cut -d ' ' -f 1)
+	installed_sha=$(sha256sum "$CLASH_BIN" 2>/dev/null | cut -d ' ' -f 1)
+	[ -n "$running_sha" ] && [ "$running_sha" = "$installed_sha" ]
 }
 start_core() {
 	[ -x "$CLASH_BIN" ] || return 1

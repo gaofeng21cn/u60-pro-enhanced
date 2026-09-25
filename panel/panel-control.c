@@ -25,7 +25,7 @@ static const char *jstr(const cJSON *o,const char *k){cJSON *v=jget(o,k);return 
 static cJSON *reply(int ok,const char *msg){cJSON *r=cJSON_CreateObject();cJSON_AddBoolToObject(r,"ok",ok);cJSON_AddStringToObject(r,"message",msg);return r;}
 static long long ms(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (long long)t.tv_sec*1000+t.tv_nsec/1000000;}
 static int run_cmd(const char *path,char *const argv[],const char *input,char *out,size_t cap){
- int in[2],op[2],status=0;size_t used=0,sent=0,total=input?strlen(input):0;pid_t pid;long long end=ms()+(!strcmp(path,"/data/u60-panel/panel-relay")?110000:!strcmp(path,"/data/u60-panel/wifi-relay.sh")?60000:!strcmp(path,"/data/u60-panel/wifi-band.sh")?95000:!strcmp(path,"/data/u60-panel/tailscale-mode.sh")?65000:((!strcmp(path,"/data/u60-panel/network-profile.sh")||!strcmp(path,"/data/u60-panel/tailscale-mode.sh")||!strcmp(path,"/data/u60-panel/wifi-band.sh"))?30000:8000));
+ int in[2],op[2],status=0;size_t used=0,sent=0,total=input?strlen(input):0;pid_t pid;long long end=ms()+(!strcmp(path,"/data/u60-panel/panel-relay")?210000:!strcmp(path,"/data/u60-panel/wifi-relay.sh")?100000:!strcmp(path,"/data/u60-panel/wifi-band.sh")?95000:!strcmp(path,"/data/u60-panel/tailscale-mode.sh")?65000:((!strcmp(path,"/data/u60-panel/network-profile.sh")||!strcmp(path,"/data/u60-panel/tailscale-mode.sh")||!strcmp(path,"/data/u60-panel/wifi-band.sh"))?30000:8000));
  if(!cap)return 0;if(out)out[0]=0;if(pipe(in))return 0;if(pipe(op)){close(in[0]);close(in[1]);return 0;}
  pid=fork();if(pid<0){close(in[0]);close(in[1]);close(op[0]);close(op[1]);return 0;}
  if(!pid){dup2(in[0],0);dup2(op[1],1);int nul=open("/dev/null",O_WRONLY);if(nul>=0)dup2(nul,2);close(in[0]);close(in[1]);close(op[0]);close(op[1]);if(nul>2)close(nul);char *env[]={"PATH=/usr/sbin:/usr/bin:/sbin:/bin","LANG=C",NULL};execve(path,argv,env);_exit(127);}
@@ -366,7 +366,7 @@ static cJSON *state(void){
  copy_value(ud,"host",mac,"mode");
  cJSON_AddItemToObject(ud,"gadget",mac?cJSON_Duplicate(mac,1):cJSON_CreateObject());
  item(s,"macnet.mode","USB 直连协议","info",!known?"未知":!strcmp(mm,"ecm")?"ECM":!strcmp(mm,"rndis")?"RNDIS":"未知",NULL,0,NULL);
- const char *link_state=!known?"读取失败":!cJSON_IsTrue(jget(mac,"bound"))?"USB 功能未绑定":!cJSON_IsTrue(jget(mac,"configured"))?"等待电脑识别":!cJSON_IsTrue(jget(mac,"carrier"))?"电脑已识别，网口未连接":!cJSON_IsTrue(jget(mac,"bridged"))?"网口已连接，未加入内网":"USB 内网链路已连接";
+ const char *link_state=!known?"读取失败":!cJSON_IsTrue(jget(mac,"bound"))?"USB 功能未绑定":!cJSON_IsTrue(jget(mac,"configured"))?"等待电脑识别":!cJSON_IsTrue(jget(mac,"carrier"))?"USB 已枚举，网络链路未建立":!cJSON_IsTrue(jget(mac,"bridged"))?"网口已连接，未加入内网":"USB 内网链路已连接，上网待验证";
  item(s,"macnet.link","USB 直连链路","info",link_state,NULL,0,NULL);
  item(s,"macnet.help","Mac 连接说明","info","在线切换暂不可用；请通过 Wi-Fi 管理",NULL,0,NULL);
  if(!strcmp(port_state,"WAIT_ADAPTER"))cJSON_ReplaceItemInObject(d,"usb_status",cJSON_CreateString(link_state));

@@ -283,6 +283,21 @@ static void shell_preview_management(struct drm_buf*b,const char*dir){
  shell_hit(&a,SH_SECTION+25);assert(a.shell.tab==1&&!strcmp(a.shell.section,"clients"));
  sh_close(&a);cJSON_Delete(a.shell.snapshot);puts("PASS: child management navigation/back, preserved action routing, current choices, selected confirmation, no write on cancel, home targets >=44px");
 }
+static void shell_preview_relay_input(struct drm_buf*b,const char*dir){
+ struct app a;shell_preview_fixture(&a);
+ cJSON*form=cJSON_Parse("{\"label\":\"测试上游\",\"type\":\"form\",\"action\":\"wifi.relay.connect\",\"enabled\":true,\"confirm\":false,\"fields\":[{\"key\":\"password\",\"label\":\"上游 Wi-Fi 密码\",\"kind\":\"password\",\"required\":true,\"minLength\":8,\"maxLength\":63}]}");
+ sh_open_item(&a,form);cJSON_Delete(form);assert(a.shell.editor==1);
+ for(int theme=0;theme<PANEL_THEME_COUNT;theme++){sh_theme=theme;for(int page=0;page<3;page++){shell_hit(&a,(int[]){SH_ALPHA,SH_DIGITS,SH_SYMBOLS}[page]);shell_render(b,&a);shell_preview_hits(&a);for(int h=0;h<a.nhits;h++){assert(a.hits[h].x1-a.hits[h].x0>=44);assert(a.hits[h].y1-a.hits[h].y0>=44);}shell_preview_write(b,dir,200+theme*3+page);}}
+ shell_hit(&a,SH_DIGITS);for(int n=0;n<8;n++)shell_hit(&a,SH_KEY+n);assert(!strcmp(a.shell.values[0],"01234567"));
+ shell_hit(&a,SH_ALPHA);shell_hit(&a,SH_SHIFT);shell_hit(&a,SH_KEY);shell_hit(&a,SH_SYMBOLS);shell_hit(&a,SH_KEY);assert(!strcmp(a.shell.values[0],"01234567A!"));
+ memset(a.shell.values[0],'x',63);a.shell.values[0][63]=0;shell_hit(&a,SH_KEY);assert(strlen(a.shell.values[0])==63);
+ shell_hit(&a,SH_DELETE);assert(strlen(a.shell.values[0])==62);shell_hit(&a,SH_REVEAL);shell_hit(&a,SH_DONE);assert(!a.shell.reveal);
+ shell_hit(&a,SH_APPLY);assert(a.shell.busy&&a.shell.draft&&!a.shell.modal&&strlen(a.shell.values[0])==62);
+ cJSON*error=cJSON_Parse("{\"ok\":false,\"message\":\"连接未完成，请修改后重试\"}");sh_action_result(&a,error);assert(a.shell.modal==4&&!a.shell.busy&&strlen(a.shell.values[0])==62);shell_render(b,&a);shell_preview_hits(&a);shell_preview_write(b,dir,210);
+ shell_hit(&a,SH_FIELD);shell_hit(&a,SH_DELETE);shell_hit(&a,SH_DONE);shell_hit(&a,SH_APPLY);assert(a.shell.busy);sh_action_result(&a,error);shell_hit(&a,SH_CANCEL);assert(!a.shell.draft&&!a.shell.values[0][0]);
+ sh_action_result(&a,error);assert(a.shell.modal==3&&a.shell.status_until==0);shell_hit(&a,SH_CANCEL);assert(!a.shell.modal);cJSON_Delete(error);cJSON_Delete(a.shell.snapshot);sh_theme=0;
+ puts("PASS: 44px password keys, direct modes, 63-character bound, concealed return, failed-connect draft retry and explicit error dismissal");
+}
 static int shell_preview_main(const char*dir){
  struct app a;struct drm_buf b={0};int page;
  /* Malformed or truncated labels from the backend cannot escape the buffer. */
@@ -306,5 +321,5 @@ static int shell_preview_main(const char*dir){
  /* A new snapshot cannot destroy the open form or its unsaved edits. */
  shell_preview_fixture(&a);sh_open_item(&a,cJSON_GetArrayItem(sh_get(sh_section(&a,"wifi"),"items"),1));shell_hit(&a,SH_FIELD);shell_hit(&a,SH_KEY);assert(!strcmp(a.shell.values[0],"U60-PROa"));cJSON_Delete(a.shell.snapshot);a.shell.snapshot=cJSON_CreateObject();assert(!strcmp(a.shell.values[0],"U60-PROa"));assert(!strcmp(sh_str(a.shell.draft,"label",""),"无线名称与密码"));shell_hit(&a,SH_DONE);shell_hit(&a,SH_FIELD+2);assert(a.shell.modal==5);shell_hit(&a,SH_CHOICE);assert(!strcmp(a.shell.values[2],"2g"));assert(a.shell.modal==4);
  shell_hit(&a,SH_FIELD);memset(a.shell.values[0],'x',SHELL_VALUE_CAP-1);a.shell.values[0][SHELL_VALUE_CAP-1]=0;shell_hit(&a,SH_KEY);assert(strlen(a.shell.values[0])==SHELL_VALUE_CAP-1);strcpy(a.shell.values[0],"中文");shell_hit(&a,SH_DELETE);assert(!strcmp(a.shell.values[0],"中"));shell_hit(&a,SH_DONE);shell_hit(&a,SH_CANCEL);assert(!a.shell.draft);cJSON_Delete(a.shell.snapshot);
- shell_preview_management(&b,dir);shell_preview_nav_icons(&b);shell_preview_scroll_gestures(&b,dir);shell_preview_theme_menu(&b,dir);shell_preview_search_tests(&b,dir);shell_preview_reports(&b,dir);shell_preview_schema(&b,dir);free(b.map);puts("PASS: 20 native shell states; nonoverlapping hits; draft isolation; 96-choice search, region aliases, scrolling, refreshed snapshot selection args, cancel/clear, field choice mapping, UTF-8 and buffer bounds");return 0;
+ shell_preview_relay_input(&b,dir);shell_preview_management(&b,dir);shell_preview_nav_icons(&b);shell_preview_scroll_gestures(&b,dir);shell_preview_theme_menu(&b,dir);shell_preview_search_tests(&b,dir);shell_preview_reports(&b,dir);shell_preview_schema(&b,dir);free(b.map);puts("PASS: 20 native shell states; nonoverlapping hits; draft isolation; 96-choice search, region aliases, scrolling, refreshed snapshot selection args, cancel/clear, field choice mapping, UTF-8 and buffer bounds");return 0;
 }

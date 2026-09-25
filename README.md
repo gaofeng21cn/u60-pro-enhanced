@@ -1,136 +1,109 @@
 # U60 Pro Enhanced
 
-让中兴 U60 Pro（MU5250）国行 B28/B31 在保留原厂系统的基础上，获得一套可以日常使用的网络终端界面：屏幕端负责快速查看和切换，原厂网页的「增强功能」负责完整配置。
+为中兴 U60 Pro（MU5250）国行 **B28 / B31** 提供原生小屏界面、原厂网页增强、Clash/Mihomo、Tailscale、Wi-Fi 接力与 USB 网口管理。保留原厂固件和管理页，双击电源键可切换界面。
 
-它适合这样的使用方式：U60 Pro 放在家里、车上或出差途中作为网络入口，设备连接它的 Wi-Fi 或 USB 网口；你在 U60 Pro 上配置自己的代理订阅，需要时用 Tailscale 远程访问，再用双击电源键在增强界面和原厂界面之间切换。
+**当前版本：[v0.1.4-experimental](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.4-experimental)**。这是实验版：支持固件检查和设备身份绑定，不代表全部网络与硬件组合已经验收。安装前请阅读[验证范围](docs/VALIDATION.md)。
 
-## 你可以用它做什么
+## 先确认你的设备
 
-- **代理网关**：在设备上运行 Mihomo（Clash 内核），添加自己的订阅，选择策略组和节点，让连接到 U60 Pro 的客户端使用代理。
-- **双界面管理**：屏幕首页集中查看上游、实际出口与用量，代理和组网页优先提供日常开关与节点选择，订阅、规则、出口和诊断收进各自管理页；原厂网页的「增强功能」适合管理订阅、规则、节点、连接和组网。
-- **远程组网**：安装并配置 Tailscale，从其他网络访问 U60 Pro 或它下游的设备；路由发布和访问授权仍由 Tailscale 管理端控制。
-- **网络转接**：使用 Wi-Fi 中继接入一个上游 Wi-Fi，同时保留 U60 Pro 的热点；也可以把 USB 网口设为 LAN，给电脑或其他设备提供网络。
-- **原厂功能继续可用**：蜂窝网络、热点、APN、短信、套餐、路由、DNS、DHCP 和防火墙等仍使用原厂菜单管理。
+| 项目 | 要求 |
+|---|---|
+| 国行 B28 | `BD_FLYMODEMMU5250V1.0.0B28`，内核 `5.15.185-perf` |
+| 国行 B31 | `BD_CNMU5250V1.0.0B31`，内核 `5.15.194-perf` |
+| 电脑 | Python 3、Google Android Platform Tools（`adb`），可访问 GitHub 下载依赖 |
+| 连接 | 已启用 root ADB，USB 数据线直连；准备与安装时拔下外接 USB 网卡 |
+| 空间 | 设备 `/data` 至少 400 MB 可用，升级可能需要更多；程序会检查 |
 
-项目不替换 U60 Pro 固件，也不提供固件镜像或整机刷机包。安装后设备仍可使用原厂界面和原厂网页。
+不支持 B27、港版/国际版及其他固件。**不要为安装本项目刷机、修改 USB 组合或安装不匹配的内核模块。** 项目不提供 ADB 解锁、固件或救砖镜像。Windows 安装全流程尚未实测；已验证的电脑交付路径为 macOS。
 
-## 先看这三件事
+## 下载与准备
 
-1. **只支持国行 B28 和 B31**。准备工具会检查固件、原厂网页指纹和设备身份；不匹配时不会写入。两个固件的安装材料不能互换。
-2. **需要 root ADB**。项目不执行解锁、不升级固件、不创建云端账户。请准备 Android Platform Tools，并用 USB 数据线直连设备。
-3. **代理默认不会自动接管**。首次安装后先是 DIRECT；你必须在增强网页中添加自己的 Mihomo proxy-provider 订阅、更新订阅、选择节点并启用代理路由。
+下载本仓库 Release 中的 `u60-pro-enhanced-v0.1.4-experimental.tar.gz` 和 `SHA256SUMS.txt`，不要使用 GitHub 自动生成的 Source code 压缩包作为安装包。上游 B28 包不能用于 B31。
 
-## 新用户安装路径
-
-下面是从零开始的顺序。每一步的完整前提、失败处理和命令解释见[安装与首次配置](docs/INSTALL.md)。
-
-### 1. 确认设备型号和固件
-
-当前主线同时支持 B28 与 B31，并分别校验固件、内核、原厂文件和网页资源指纹；B31 采用 UI 优先启动，首装保持直连，网络协调服务不自动启用。嵌套策略组节点选择会沿当前规则或全局路径定位实际叶子节点，网页切换前校验成员并在切换后回读确认。屏幕和网页把核心运行状态与流量接管状态分开显示，并给出同一份代理结论：只有转发规则回读确认 IPv4 TCP 与 DNS 已生效才显示“已接管”，只配置未核验、转发不完整和核心未运行分别提示；GLOBAL 仍指向直连时拒绝切换全局代理。代理覆盖自检只读回读实际 iptables 规则，明确 UDP 与 IPv6 未代理，并在存在 IPv6 默认路由时提示可能绕过；订阅列表显示用量、到期和更新超期提示。Clash 网页默认进入节点页，支持设备本机保存的收藏与最近使用，并可选启用按连通延迟自动切换的 `url-test` 策略组。
-
-连接 USB、打开 ADB，只保留一台目标设备，然后确认版本号属于 B28 或 B31：
+macOS 示例（Linux 将 `shasum -a 256` 换成 `sha256sum`）：
 
 ```sh
+shasum -a 256 -c SHA256SUMS.txt
+tar -xzf u60-pro-enhanced-v0.1.4-experimental.tar.gz
+cd u60-pro-enhanced-v0.1.4-experimental
 adb devices
-adb shell "ubus -t 5 call zwrt_zte_mdm.api get_zwrt_common_info '{}' | jsonfilter -e '@.wa_inner_version'"
-```
-
-不要在 B27、港版或国际版上继续安装。先阅读[验证范围与风险](docs/VALIDATION.md)，确认自己知道如何回退。
-
-### 2. 构建并准备安装材料
-
-需要 Zig 0.14.1、Go、Python 3、Git；主机测试还需要 C 编译器和 Node.js。Zig 0.16 会构建失败。
-
-```sh
-ZIG=/path/to/zig-0.14.1 sh scripts/build.sh
-sh scripts/test.sh
-python3 scripts/package.py
-cd dist
-ls -d u60-pro-enhanced-*/
-cd u60-pro-enhanced-*/
 python3 prepare.py
 ```
 
-`prepare.py` 只读取设备信息和原厂网页资源，并在电脑上生成绑定本机的准备目录；不会写设备。准备目录包含设备专属材料，不要上传或提交到 Git。
+只连接一台待安装设备。`prepare.py` 读取固件、设备身份摘要和原厂网页资源，下载固定版本并校验依赖，生成旁边的 `u60-prepared-private/`；不会安装程序或改动路由。该目录只适用于这台设备，包含设备派生材料，**不要上传、分享或用于其他设备**。多设备、依赖下载失败和原厂网页指纹问题见[安装说明](docs/INSTALL.md)。
 
-### 3. 检查、安装并启动
+## 首次安装
 
-进入 `u60-prepared-private` 目录，按顺序执行：
+准备完成后进入私有安装目录，按顺序执行：
 
 ```sh
+cd ../u60-prepared-private
 python3 deploy-from-computer.py check
 python3 deploy-from-computer.py install
 python3 deploy-from-computer.py start
 ```
 
-`check` 上传校验材料并检查兼容性，`install` 写入程序和启动项，`start` 启动屏幕与网页增强。检查失败时不要强制继续。完成后先确认原厂网页、增强网页、屏幕显示和双击电源键切换都正常。
+`check` 上传材料并检查；`install` 安装程序、保存原厂启动备份；`start` 启动。已有项目目录时首装会拒绝覆盖，请走升级流程。
 
-### 4. 完成第一次代理配置
+安装后先检查小屏、原厂网页和原有热点上网，再逐项启用网络扩展。B31 首装不主动开启 USB 协调、Wi-Fi 接力或深度待机；用户选择 USB 角色后才启动协调服务，开启接力后才按其策略运行。没有预置代理订阅或 Tailscale 身份。
 
-在设备 USB 连接状态下，只需首次执行一次：
+## 已安装用户升级
+
+下载新包，重新为同一设备准备一个**新的私有目录**。设备已挂载增强网页时，先在准备期间临时停止网页覆盖层，结束后恢复：
 
 ```sh
-adb shell sh /data/u60-panel/setup-clash.sh
+adb shell /etc/init.d/u60-web stop
+python3 prepare.py --output ../u60-prepared-private-v014
+adb shell /etc/init.d/u60-web start
+cd ../u60-prepared-private-v014
+python3 deploy-from-computer.py upgrade-check
+python3 deploy-from-computer.py upgrade
 ```
 
-然后用连接 U60 Pro 的电脑或手机打开 `http://192.168.0.1/`：
+**即使准备失败，也要执行上面的网页 `start`。** 不要修改已经生成的安装目录以绕过校验。升级逐文件备份、核对安装字节并重新加载网页和屏幕；保留订阅、节点偏好、Tailscale 身份及用户设置，失败时尝试恢复前一版本。升级前程序备份留在设备；[清理与恢复说明](docs/RECOVERY.md)解释哪些材料可以归档。
 
-1. 登录原厂管理页面，打开侧栏的「增强功能」→「Clash」。
-2. 添加自己的 **Mihomo proxy-provider 格式**订阅并更新；普通完整配置、Base64 分享链接和任意机场格式不保证兼容。
-3. 先选择策略组，再选择具体节点，确认网页回读的当前节点正确；屏幕端也会显示当前生效路径。
-4. 将模式设为 Rule，并启用代理路由。需要直连时关闭代理路由或切回 DIRECT。
-5. 同时测试国内站点和需要代理的站点，确认规则命中和节点可用。只打开一个网页不能证明代理已经接管。
+升级时字节相同的网络核心保留运行 inode；若新版需要更换正在运行的网络核心，检查会拒绝，需先通过界面停止相应核心再升级，升级后按原有方式启用。
 
-设备不附带订阅、节点、密码或 Tailscale 身份。订阅和凭据只保存在设备本机，不要发到 issue、PR 或聊天中。
+## 日常使用
 
-## 日常怎么用
+- **小屏**：总览看上游、实际出口、速率与用量；代理/组网页提供常用操作，订阅、规则、出口与诊断归入管理子页。单击电源亮灭屏，双击切换原厂/增强界面。长按电源菜单受原厂固件影响，不保证无人值守重启。
+- **网页**：连接 U60 热点，访问原厂管理地址（默认 `http://192.168.0.1/`），使用自己的原厂管理密码登录，选择“增强功能”。没有额外默认密码。APN、SIM、DHCP 等原厂设置继续在原厂菜单操作。
+- **Clash/Mihomo**：先执行 `adb shell sh /data/u60-panel/setup-clash.sh` 初始化本机配置，再在网页添加自己的 Mihomo proxy-provider 订阅、选择节点并开启代理。以“实际代理状态”为准；核心运行不等于流量已接管。当前代理覆盖 IPv4 TCP 与 DNS，UDP 443 拒绝以促使 TCP 回退，其他 UDP 与 IPv6 不宣称代理。
+- **Tailscale**：执行 `adb shell sh /data/u60-panel/setup-tailscale.sh`，在自己的浏览器完成登录。内网访问还需实际路由发布、后台批准及 ACL/Grant，不能只看本机在线。
 
-### 屏幕端
+详细步骤见[使用说明](docs/USAGE.md)。不要把管理端口映射到公网，不在 Issue 中发送密码、订阅、设备标识或私有安装目录。
 
-- 单击电源键亮屏或熄屏。
-- 双击电源键在增强界面和原厂界面之间切换。
-- 在增强界面的网络页查看代理、上游和出口状态；在 Clash 页切换模式、策略组和节点。
-- Clash 页的代理状态会分别显示核心运行和流量接管；“代理覆盖自检”会回读 IPv4 TCP、DNS、UDP 443 拒绝和 IPv6 默认路由提示。
-- Clash 页把代理开关、分流模式和快速节点放在前列，配置类条目以“更多 ·”标注；收藏当前节点后可在屏幕与网页快速切回。
-- 长按电源键打开原厂电源菜单。原厂“重启”在部分设备上可能表现为关机，设备旁操作并按原厂方式重新开机。
+## USB 与 Wi-Fi 接力分别能做什么
 
-### 原厂网页
+| 场景 | 操作与边界 |
+|---|---|
+| U60 → USB 网卡 → 网线 → 电脑 | 选择 **LAN**，给下游供网；当前仅适配指定 AX88179（`0b95:1790`、`ax_usb_nic`） |
+| 上级路由器 → 网线 → USB 网卡 → U60 | 选择 **AUTO**，获取有线上游地址；断线可回蜂窝。AUTO 不会把“没有 DHCP”猜成 LAN |
+| U60 → USB 数据线 → 电脑 | 独立的 RNDIS/ECM 功能；当前只观察状态，Mac 直连上网未完成验收，不开放在线协议切换 |
+| 上游 Wi-Fi → U60 → 自身热点或 LAN | 支持单个 2.4G／非 DFS 5G 上游、保存网络与同频段重连；不是 Mesh，不聚合两条 Wi-Fi 带宽 |
 
-登录 `http://192.168.0.1/` 后打开原厂侧栏的「增强功能」，通过概览、网络、Clash、Tailscale、电源和工具六个子菜单访问。一级菜单的图标和文字与原厂菜单对齐，内容页复用原厂单行标题和蓝白样式；切换子页时先显示本次登录的缓存状态，再后台更新，退出或会话失效时清空缓存。同一浏览器页面的后台请求顺序执行，切页会等待前一项读取结束。网页适合完成以下操作：
+Wi-Fi 接力入口为“小屏：网络 → Wi-Fi → 连接上游 Wi-Fi；网页：增强功能 → 网络”。密码可在小屏或已登录的网页输入；小屏提供独立字符页，连接失败后保留内存草稿供修改重试。要求 5G 主热点开启、访客热点关闭、USB 为 LAN；同频热点可能短暂断开重连。界面分别显示关联/出口和互联网探测，探测失败不自动改变出口。
 
-- 添加、更新和删除订阅，设置更新间隔；
-- Clash 在顶部集中显示代理状态、开关和分流模式；节点页将当前、收藏和最近使用前置，其余节点可搜索并分批展开；
-- 在“订阅”“分流规则”“连接与诊断”中管理配置、运行自检和查看实时连接；
-- 按组网访问、互联网出口和高级设置管理 Tailscale，账号信息按需展开；
-- 分别查看 USB 数据线直连与外接网卡，设置 Wi-Fi 中继、USB LAN/WAN 角色和待机策略。
+接力可选择开机连接、允许/禁止蜂窝回退，并在关闭后忘记保存的网络。禁止回退会在接力开启期间阻断本机代理和下游经蜂窝的 IPv4/IPv6 数据包，也可能使蜂窝远程管理断开；它不关闭基带，不保证整机零流量。关闭接力恢复原出口。当前只保存一个上游；多网络优先级、企业认证、DFS 与完整认证门户流程未提供。详见[Wi-Fi 接力说明](docs/WIFI-RELAY.md)。
 
-屏幕端与网页端共用同一控制层。一个操作完成前不要在另一端重复点击；从网页切换节点后以回读结果为准。
+## 恢复与问题反馈
 
-## 重要边界
+屏幕异常时先双击电源切回原厂，保留 USB ADB。完整启动项回退按[恢复说明](docs/RECOVERY.md)执行；不要删除 `/data` 项目目录或恢复出厂来替代回退。切回原厂界面本身不会停止代理或接力。
 
-- Mihomo 当前公开验证范围是 **IPv4 TCP 与 DNS**。普通 UDP、IPv6 完整接管、全面防泄漏和长期高负载尚未完成跨设备验证。
-- Wi-Fi 中继一次连接一个 2.4 GHz 或非 DFS 5 GHz 上游，不聚合双频带宽；上游断开时可能回退蜂窝。
-- 外接 USB 转以太网适配器按 **LAN/AUTO** 选择下游供网或上游接入。USB 数据线直接接电脑使用独立的 RNDIS/ECM gadget；LAN 角色并不保证电脑能识别它。Mac 直连尚未验证，在线切换已停用，请通过 Wi-Fi 管理。
-- Tailscale 的子网路由和访问策略需要在 Tailscale 管理端批准，不会自动放开账号权限。
-- 回退只通过 USB ADB 的 `restore-boot`，不会删除订阅、Tailscale 身份或 Wi-Fi 凭据。详见[回退与保留数据](docs/RECOVERY.md)。
+报告问题请提供固件版本、项目版本、连接方式、可复现步骤及脱敏错误信息。明确区分“已连接”“拿到地址”“能够访问互联网”，并说明是否开启代理/组网。
 
-## 文档入口
+## 从源码构建
 
-| 目的 | 文档 |
-| --- | --- |
-| 第一次安装和初始化 | [安装与首次配置](docs/INSTALL.md) |
-| 已安装设备的原地升级 | [安装与首次配置 · 升级](docs/INSTALL.md) |
-| 日常切换和功能操作 | [使用与切换](docs/USAGE.md) |
-| 回退和保留数据 | [回退与保留数据](docs/RECOVERY.md) |
-| Wi-Fi 中继细节 | [Wi-Fi 中继说明](docs/WIFI-RELAY.md) |
-| 社区来源和第三方许可 | [第三方声明](THIRD_PARTY_NOTICES.md) |
+仅开发者需要 Zig **0.14.1**、Go、C 编译器和 Node.js；下载 Release 的用户无需安装这些工具。
 
-## 开源许可
+```sh
+ZIG=/path/to/zig-0.14.1 sh scripts/build.sh
+sh scripts/test.sh
+python3 scripts/package.py
+```
 
-本项目整体采用 **GPL-3.0-only**。仓库中的屏幕核心基于 GPL-3.0 示例改造，并保留相应版权和许可声明；第三方文件和库继续沿用各自的原许可证。完整条款见 [LICENSE](LICENSE) 和[第三方声明](THIRD_PARTY_NOTICES.md)。
+产物位于 `dist/`。主机测试不能替代真实硬件、下游业务、长待机和恢复验证。
 
-## 来源与反馈
+## 来源与许可
 
-屏幕界面、原厂网页增强、Wi-Fi 中继、USB 网口、Tailscale 集成和基础电源管理来自 [defilippisprafka-netizen/u60-pro-enhanced](https://github.com/defilippisprafka-netizen/u60-pro-enhanced)。本项目在此基础上支持国行 B31、按固件和设备身份绑定的准备流程，以及节点选择和安装路径的改进；通用修复会向上游提交 issue / PR。
-
-反馈请附固件版本、复现步骤和脱敏状态。不要提交完整配置、订阅 URL、密码、Tailscale state、设备序列号、IMEI、IMSI、ICCID、手机号或原始诊断包。本项目与中兴、Tailscale 或 MetaCubeX 无隶属关系。
+屏幕、网页增强、Wi-Fi 接力、USB 网口等基础来自 [defilippisprafka-netizen/u60-pro-enhanced](https://github.com/defilippisprafka-netizen/u60-pro-enhanced)。本仓库独立维护 B31 支持、设备绑定交付、控制与状态改进。许可与第三方材料见 [LICENSE](LICENSE)、[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
