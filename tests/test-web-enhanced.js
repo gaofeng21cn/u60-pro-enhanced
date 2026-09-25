@@ -31,7 +31,7 @@ function element(tag, cls = '', text = '') {
 }
 function walk(e) { return [e, ...e.kids.flatMap(walk)]; }
 function rootPage() {
-  return element('div').append(element('header', 'u60-head').append(element('h2'), element('p', 'u60-subtitle')),
+  return element('div').append(element('header', 'u60-head').append(element('h1')),
     element('button', 'u60-refresh'), element('p', 'u60-sync'), element('p', 'u60-notice', '正在读取设备状态…'),
     element('main', 'u60-content'), element('dialog'));
 }
@@ -81,7 +81,7 @@ const button = text => walk(root).find(n => n.tag === 'button' && n._text === te
 
 (async () => {
   load(); await flush();
-  assert.strictEqual(root.find('h2').text(), 'Clash');
+  assert.strictEqual(root.find('h1').text(), 'Clash');
   assert(root.find('.u60-advanced').length, 'advanced state loads on the first visit');
   assert.strictEqual(root.find('.u60-notice').text(), '');
 
@@ -103,6 +103,16 @@ const button = text => walk(root).find(n => n.tag === 'button' && n._text === te
   assert.strictEqual(requests.filter(r => r.action === 'web.clash.state').length, advancedReads + 1);
   root = rootPage(); load(); await flush();
   assert.strictEqual(requests.filter(r => r.action === 'web.clash.state').length, advancedReads + 1, 'fresh advanced cache avoids another read');
+
+  // Navigation must consume the old job before starting a new one. The backend
+  // has one job slot, shared by all AMD page instances.
+  pendingState = deferred(); root.find('.u60-refresh').handlers.click(); await flush();
+  const readsBeforeNavigation = requests.length;
+  root = rootPage(); load(); await flush();
+  assert.strictEqual(requests.length, readsBeforeNavigation, 'new page waits for the in-flight backend job');
+  const oldRead = pendingState; pendingState = null; oldRead.resolve(snapshot); await flush();
+  assert(requests.length > readsBeforeNavigation, 'current page resumes once the old result has been consumed');
+  assert(root.find('.u60-sync').text().startsWith('已同步 '));
 
   // A new login must not render the prior login's cached values.
   session = 'session-b'; pendingState = deferred(); root = rootPage(); load();

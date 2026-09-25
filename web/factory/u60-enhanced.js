@@ -25,11 +25,20 @@ define(['jquery','service_helper','config/config','u60-web-model','u60-web-advan
   },function(){throw new Error('连接中断或请求超时；请恢复连接并刷新，勿重复提交设置');});
  }
  function call(action,args){
-  var deferred=$.Deferred(),started=Date.now();
-  rpc('start',{request:JSON.stringify({action:action,args:args||{}})}).then(function(start){
-   function poll(){rpc('result',{id:start.id}).then(function(result){if(result.done){deferred.resolve(result.payload);return;}if(Date.now()-started>150000){deferred.reject(new Error('等待超时，请刷新并核对实际状态'));return;}setTimeout(poll,500);},deferred.reject);}
-   poll();
-  },deferred.reject);return deferred.promise();
+  var deferred=$.Deferred(),promise=deferred.promise(),previous=cache.pending,generation=alive,session=cache.session;
+  cache.pending=promise;
+  function release(){if(cache.pending===promise)cache.pending=null;}
+  promise.then(release,release);
+  function start(){
+   if(generation!==alive||cache.session!==session||!present()){deferred.reject(new Error('页面已切换，请在当前页面重新操作'));return;}
+   var started=Date.now();
+   rpc('start',{request:JSON.stringify({action:action,args:args||{}})}).then(function(start){
+    function poll(){rpc('result',{id:start.id}).then(function(result){if(result.done){deferred.resolve(result.payload);return;}if(Date.now()-started>150000){deferred.reject(new Error('等待超时，请刷新并核对实际状态'));return;}setTimeout(poll,500);},deferred.reject);}
+    poll();
+   },deferred.reject);
+  }
+  if(previous)previous.then(start,start);else start();
+  return promise;
  }
  function setBusy(value){busy=value;if(present())root.find('.u60-refresh').prop('disabled',busy||reading||advancedReading);}
  function refresh(manual){
@@ -84,7 +93,7 @@ define(['jquery','service_helper','config/config','u60-web-model','u60-web-advan
   var enabled=model.interactive(item),row=node(enabled?'button':'div','u60-setting'+(enabled?' actionable':''));if(enabled)row.attr('type','button').on('click',function(){openItem(item);});
   row.append(node('span','u60-setting-label',item.label),node('span','u60-setting-value',item.value));if(enabled)row.append(node('span','u60-chevron','›').attr('aria-hidden','true'));else if(item.reason&&item.enabled===false)row.attr('title',item.reason);card.append(row);
  });return card;}
- function render(){if(!present())return;var meta=pageMeta[tab]||pageMeta.overview;root.find('.u60-head h2').text(meta[0]);root.find('.u60-subtitle').text(meta[1]);if(!snapshot)return;var content=root.find('.u60-content').empty(),d=snapshot.data||{};
+ function render(){if(!present())return;var meta=pageMeta[tab]||pageMeta.overview;root.find('.u60-head h1').text(meta[0]);if(!snapshot)return;var content=root.find('.u60-content').empty(),d=snapshot.data||{};
   if(tab==='overview'){
    var metrics=node('div','u60-metrics'),relay=d.wifi_relay||{},usb=d.usb||{},clash=d.clash||{};
    var verdict=clash.verdict||'';var verdictLabel={takeover:'代理已生效',partial:'转发不完整',unverified:'未核验',core_down:'核心未运行',tailscale:'Tailscale 出口',error:'异常'}[verdict]||(clash.online?({rule:'规则分流',global:'全局代理',direct:'直连'}[clash.mode]||'运行中'):'已停止');
