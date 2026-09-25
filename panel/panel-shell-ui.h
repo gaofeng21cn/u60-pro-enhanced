@@ -457,7 +457,7 @@ static void shell_render(struct drm_buf*b,struct app*a){
 #ifndef PANEL_PREVIEW
  static int theme_loaded=0;if(!theme_loaded){sh_theme=panel_theme_load();theme_loaded=1;logline("screen theme loaded=%s",panel_theme_key(sh_theme));}
 #endif
- struct panel_shell*s=&a->shell;const char*titles[]={"U60 Pro","网络","代理","Tailscale","设置"};
+ struct panel_shell*s=&a->shell;const char*titles[]={"U60 Pro","网络","代理","组网","设置"};
  s->scroll_offset=NULL;draw_clip_top=0;draw_clip_bottom=H;
  if(s->tab<0||s->tab>4)s->tab=0;sh_background(b,0,0,320,480);hit_reset(a);
  const char*title=s->subpage?sh_str(sh_section(a,s->section),"title",s->section):titles[s->tab];

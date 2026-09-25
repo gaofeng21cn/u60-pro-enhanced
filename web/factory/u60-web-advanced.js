@@ -11,7 +11,7 @@ define(['jquery','u60-web-model'],function($,m){
  function pathOf(data){var head=data.mode==='global'?'GLOBAL':'MATCH',path=(data.active_path||[]).slice();if(!path.length)return '';return head+' → '+path.join(' → ')+(data.active_node?' → '+data.active_node:'');}
  function row(title,value){return n('div','u60-setting').append(n('span','u60-setting-label',title),n('span','u60-setting-value',value));}
  function sourceButton(api,id,label){var item=(api.items||[]).find(function(i){return i.id===id;});if(!item)return null;return button(label||item.label,function(){api.open(item);}).prop('disabled',!m.interactive(item));}
- function about(data){var box=n('details','u60-disclosure u60-about').attr('id','u60-clash-about');box.append(n('summary','','版本与验证范围'),n('p','u60-help','已安装版本：'+(data.release||'未知')),n('p','u60-help','已实机验证：增强屏幕、双击电源切换、原厂网页、热点上网、节点选择与回读、订阅节点连通延迟、规则/全局模式切换'),n('p','u60-help','未验证：USB/Wi-Fi 中继、深度待机、充电控制、长时高负载、第二台设备首装'),n('p','u60-help','回退：USB ADB 的 restore-boot；升级前的程序备份保留在设备本机'));return box;}
+ function about(data){var box=n('details','u60-disclosure u60-about').attr('id','u60-clash-about');box.append(n('summary','','版本与验证范围'),n('p','u60-help','已安装版本：'+(data.release||'未知')),n('p','u60-help','已实机验证：增强屏幕、双击电源切换、原厂网页、热点上网、节点选择与回读、订阅节点连通延迟、规则/全局模式切换'),n('p','u60-help','B31 已验证：2.4GHz 中继与热点客户端 IPv4 HTTPS。待验证：5GHz 完整下游、外接 USB 网卡、冷启动、长待机与第二台首装'),n('p','u60-help','回退：USB ADB 的 restore-boot；升级前的程序备份保留在设备本机'));return box;}
  function coverage(data,api){
   var box=card('代理概况'),body=n('div','u60-card-body').appendTo(box),verdict=data.verdict||'direct',summary=data.verdict_text||'当前直连';
   var headline=n('div','u60-status-head').append(n('strong','u60-status-title',summary));

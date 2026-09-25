@@ -94,7 +94,7 @@ for (const want of ['30 个节点', 'provider.invalid', '到期', '用量']) {
 
 subtabButton('连接与诊断').handlers.click();
 const diagnosticsView=texts(advanced.render('clash',base,api)).join('\n');
-for(const want of ['版本与验证范围','u60-pro-B31-20260924-072501','未验证：USB/Wi-Fi 中继'])assert(diagnosticsView.includes(want));
+for(const want of ['版本与验证范围','u60-pro-B31-20260924-072501','B31 已验证：2.4GHz 中继'])assert(diagnosticsView.includes(want));
 assert(diagnosticsView.includes('当前没有连接记录'));
 assert.strictEqual(findButton(advanced.render('clash',base,api),'断开全部连接').disabled,true);
 const diagnose = findButton(advanced.render('clash', base, api), '代理覆盖自检');

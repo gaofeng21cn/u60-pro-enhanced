@@ -2,7 +2,7 @@
 
 为中兴 U60 Pro（MU5250）国行 **B28 / B31** 提供原生小屏界面、原厂网页增强、Clash/Mihomo、Tailscale、Wi-Fi 接力与 USB 网口管理。保留原厂固件和管理页，双击电源键可切换界面。
 
-**当前版本：[v0.1.7-experimental](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.7-experimental)**。这是实验版：支持固件检查和设备身份绑定，不代表全部网络与硬件组合已经验收。安装前请阅读[验证范围](docs/VALIDATION.md)。
+**当前版本：[v0.1.8-experimental](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.8-experimental)**。这是实验版：支持固件检查和设备身份绑定，不代表全部网络与硬件组合已经验收。安装前请阅读[验证范围](docs/VALIDATION.md)。
 
 ## 先确认你的设备
 
@@ -18,14 +18,14 @@
 
 ## 下载与准备
 
-下载本仓库 Release 中的 `u60-pro-enhanced-v0.1.7-experimental.tar.gz` 和 `SHA256SUMS.txt`，不要使用 GitHub 自动生成的 Source code 压缩包作为安装包。上游 B28 包不能用于 B31。
+下载本仓库 Release 中的 `u60-pro-enhanced-v0.1.8-experimental.tar.gz` 和 `SHA256SUMS.txt`，不要使用 GitHub 自动生成的 Source code 压缩包作为安装包。上游 B28 包不能用于 B31。
 
 macOS 示例（Linux 将 `shasum -a 256` 换成 `sha256sum`）：
 
 ```sh
 shasum -a 256 -c SHA256SUMS.txt
-tar -xzf u60-pro-enhanced-v0.1.7-experimental.tar.gz
-cd u60-pro-enhanced-v0.1.7-experimental
+tar -xzf u60-pro-enhanced-v0.1.8-experimental.tar.gz
+cd u60-pro-enhanced-v0.1.8-experimental
 adb devices
 python3 prepare.py
 ```
@@ -53,9 +53,9 @@ python3 deploy-from-computer.py start
 
 ```sh
 adb shell /etc/init.d/u60-web stop
-python3 prepare.py --output ../u60-prepared-private-v017
+python3 prepare.py --output ../u60-prepared-private-v018
 adb shell /etc/init.d/u60-web start
-cd ../u60-prepared-private-v017
+cd ../u60-prepared-private-v018
 python3 deploy-from-computer.py upgrade-check
 python3 deploy-from-computer.py upgrade
 ```
@@ -67,7 +67,7 @@ python3 deploy-from-computer.py upgrade
 ## 日常使用
 
 - **小屏**：总览看上游、实际出口、速率与用量；代理/组网页提供常用操作，订阅、规则、出口与诊断归入管理子页。单击电源亮灭屏，双击切换原厂/增强界面。长按电源菜单受原厂固件影响，不保证无人值守重启。
-- **网页**：连接 U60 热点，访问原厂管理地址（默认 `http://192.168.0.1/`），使用自己的原厂管理密码登录，选择“增强功能”。没有额外默认密码。APN、SIM、DHCP 等原厂设置继续在原厂菜单操作。
+- **网页**：连接 U60 热点，访问原厂管理地址（默认 `http://192.168.0.1/`），使用自己的原厂管理密码登录，选择“增强功能 → 总览 / 网络 / 代理 / 组网 / 电源 / 工具”；“代理”对应 Clash / Mihomo，“组网”对应 Tailscale，与小屏一致。没有额外默认密码。APN、SIM、DHCP 等原厂设置继续在原厂菜单操作。
 - **Clash/Mihomo**：先执行 `adb shell sh /data/u60-panel/setup-clash.sh` 初始化本机配置，再在网页添加自己的 Mihomo proxy-provider 订阅、选择节点并开启代理。以“实际代理状态”为准；核心运行不等于流量已接管。当前代理覆盖 IPv4 TCP 与 DNS，UDP 443 拒绝以促使 TCP 回退，其他 UDP 与 IPv6 不宣称代理。
 - **Tailscale**：执行 `adb shell sh /data/u60-panel/setup-tailscale.sh`，在自己的浏览器完成登录。内网访问还需实际路由发布、后台批准及 ACL/Grant，不能只看本机在线。
 

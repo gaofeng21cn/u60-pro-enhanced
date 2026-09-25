@@ -82,7 +82,7 @@ const button = text => walk(root).find(n => n.tag === 'button' && n._text === te
 
 (async () => {
   load(); await flush();
-  assert.strictEqual(root.find('h1').text(), 'Clash');
+  assert.strictEqual(root.find('h1').text(), '代理');
   assert(root.find('.u60-advanced').length, 'advanced state loads on the first visit');
   assert.strictEqual(root.find('.u60-notice').text(), '');
 

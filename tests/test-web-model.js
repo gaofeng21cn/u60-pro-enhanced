@@ -28,7 +28,7 @@ const sections=[
 ];
 const before=JSON.stringify(sections);
 const network=m.filterSections(sections,'network');
-assert.deepStrictEqual(network.map(x=>x.id),['wifi','usb-adapter']);
+assert.deepStrictEqual(network.map(x=>x.id),['wifi-relay','usb-adapter']);
 assert.deepStrictEqual(network[0].items.map(x=>x.id),['relay','relay-scan']);
 assert.strictEqual(network[0].items[0],sections[0].items[1]); // Control payload is unchanged.
 assert.deepStrictEqual(m.filterSections(sections,'device')[0].items.map(x=>x.id),['charge.manual','charge.policy','power.standby']);

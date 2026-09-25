@@ -23,7 +23,7 @@ macOS/Linux 使用终端；Windows 可用 Python 3 与 `adb.exe`，Windows 完�
 
 ### 从本仓库源码构建
 
-可下载本仓库 [v0.1.7-experimental 安装包](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.7-experimental)，下载用户不需要编译器。以下是开发者构建方式。构建依赖 Zig 0.14.1、Go、Python 3 和 Git，主机测试还需 C 编译器和 Node.js。**请显式使用 Zig 0.14.1**：0.16 会构建失败。
+可下载本仓库 [v0.1.8-experimental 安装包](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.8-experimental)，下载用户不需要编译器。以下是开发者构建方式。构建依赖 Zig 0.14.1、Go、Python 3 和 Git，主机测试还需 C 编译器和 Node.js。**请显式使用 Zig 0.14.1**：0.16 会构建失败。
 
 ```sh
 sh scripts/build.sh
@@ -42,7 +42,7 @@ python3 scripts/package.py
 先进入安装包目录。本仓库构建产物位于 `dist/u60-pro-enhanced-<版本>/`（构建后可用 `ls dist/` 查看实际目录名），使用上游 Release 时就是解压出来的同名目录。
 
 ```sh
-cd dist/u60-pro-enhanced-v0.1.7-experimental
+cd dist/u60-pro-enhanced-v0.1.8-experimental
 python3 prepare.py
 ```
 
@@ -52,7 +52,7 @@ python3 prepare.py
 
 ### 已经装过本项目的设备
 
-不要重复执行首次安装：安装器会拒绝覆盖已有目录。已有安装改用升级入口，先上传材料并检查，再执行升级：
+不要重复执行首次安装：安装器会拒绝覆盖已有目录。已有安装先进入准备阶段生成的私有目录（默认与安装包同级的 `u60-prepared-private/`），再上传材料并升级：
 
 ```sh
 python3 deploy-from-computer.py upgrade-check
@@ -65,7 +65,9 @@ B31 开机后 USB 需要等待原厂 ConfigFS gadget 完成重新枚举；ADB �
 
 准备升级包时如果设备已经挂载增强网页，`prepare.py` 会因原厂页面指纹不符而拒绝：先运行 `/etc/init.d/u60-web stop` 让原厂页面重新可见，准备完成后再 `/etc/init.d/u60-web start`。
 
-以下三条命令依次上传校验材料、写入程序和启动项、启动屏幕与网页扩展：
+### 首次安装
+
+仅未安装过本项目的设备执行以下三条命令，依次上传校验材料、写入程序和启动项、启动屏幕与网页扩展：
 
 ```sh
 cd ../u60-prepared-private
@@ -92,7 +94,7 @@ adb shell sh /data/u60-panel/setup-clash.sh
 
 配置仅写入目标 `/data/u60-clash/config.yaml`，权限 0600，控制 API 只监听本机。初始组选择 DIRECT，先保持直连。
 
-登录原厂网页 → 增强功能 → Clash，添加自己的 **Mihomo proxy-provider 格式**订阅，选择目标策略组、保存/更新。普通完整配置、Base64 分享链接或任意机场格式不保证直接兼容；不提供第三方在线转换服务。先选择节点，确认测速可用，再启用代理路由与规则模式。新增订阅不会自行切走当前节点。
+登录原厂网页 → 增强功能 → 代理，添加自己的 **Mihomo proxy-provider 格式**订阅，选择目标策略组、保存/更新。普通完整配置、Base64 分享链接或任意机场格式不保证直接兼容；不提供第三方在线转换服务。先选择节点，确认测速可用，再启用代理路由与规则模式。新增订阅不会自行切走当前节点。
 
 分别测试国内站点和需要代理的站点，并核查连接命中的策略；仅“网页打开”不足以证明命中预期规则。不要将管理端口映射到公网。初始 LAN 为原厂 `192.168.0.0/24`，自定义 LAN 地址需同时审核 Clash 绑定、DNS 和子网设置，当前没有自动迁移保证。
 

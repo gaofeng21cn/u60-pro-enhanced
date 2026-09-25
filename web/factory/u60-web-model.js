@@ -39,6 +39,7 @@
   }).filter(function(s){return s.items.length>0;});
   function split(section,parts){return parts.map(function(p){return {id:p[0],title:p[1],collapsed:!!p[3],items:section.items.filter(function(i){return p[2].indexOf(i.id)>=0;})};}).filter(function(s){return s.items.length;});}
   return filtered.reduce(function(out,s){
+   if(s.id==='wifi')return out.concat(split(s,[['wifi-relay','Wi-Fi 中继',['relay','relay-scan','relay-health']],['wifi-relay-policy','重连与流量策略',['relay-fallback','relay-autostart','relay-forget']]]));
    if(s.id==='usb')return out.concat(split(s,[['usb-adapter','外接 USB 网卡',['role','status','wiring']],['usb-cable','USB 数据线直连',['macnet.mode','macnet.link','macnet.help']]]));
    if(s.id==='tailscale')return out.concat(split(s,[['tailscale','组网与访问',['connected','lan-gateway','advertise_lan']],['tailscale-exit','互联网出口',['exit','offer_exit']],['tailscale-options','高级组网设置',['mode','RouteAll','CorpDNS','ExitNodeAllowLANAccess'],true]]));
    if(s.id==='battery')return out.concat(split(s,[['power-controls','充电与待机设置',['charge.manual','charge.policy','usb.power_role','power.standby']],['power-status','电池与供电状态',['usb.charge_state','charge.connected','charge.temp','charge.voltage','charge.current','charge.policy_status','power.standby_state']]]));

@@ -5,7 +5,7 @@ define(['jquery','service_helper','config/config','u60-web-model','u60-web-advan
  window.__u60EnhancedCache=cache;
  var root,dialog,snapshot,tab='overview',busy=false,reading=false,alive=0,lastRead=0,lastInteraction=0,focusBack,advancedReading=false,advancedData=cache.advanced,advancedAt=cache.advancedAt;
  var hashTabs={"#u60_enhanced":"overview","#u60_enhanced_network":"network","#u60_enhanced_clash":"clash","#u60_enhanced_tailscale":"tailscale","#u60_enhanced_device":"device","#u60_enhanced_more":"more"};
- var pageMeta={overview:['增强功能','中继、代理、组网与电源增强。'],network:['网络','Wi-Fi 上游、AUTO / WAN / LAN'],clash:['Clash','订阅、节点、规则与连接'],tailscale:['Tailscale','组网设备、出口与子网路由'],device:['电源','充电上限、供电方向、待机服务'],more:['工具','诊断、版本与维护工具']};
+ var pageMeta={overview:['总览','查看当前连接与服务状态，进入常用管理。'],network:['网络','Wi-Fi 上游、AUTO / WAN / LAN'],clash:['代理','Clash / Mihomo · 管理节点、订阅与分流规则'],tailscale:['组网','Tailscale · 连接远程设备，管理内网访问与出口'],device:['电源','充电上限、供电方向、待机服务'],more:['工具','诊断、版本与维护工具']};
  function hashFor(value){return value==='overview'?'#u60_enhanced':'#u60_enhanced_'+value;}
  function tabFromHash(){return hashTabs[location.hash]||'overview';}
  function clearCache(){cache.snapshot=null;cache.snapshotAt=0;cache.advanced={};cache.advancedAt={};snapshot=null;lastRead=0;advancedData=cache.advanced;advancedAt=cache.advancedAt;if(present())root.find('.u60-content').empty();}
@@ -92,14 +92,14 @@ define(['jquery','service_helper','config/config','u60-web-model','u60-web-advan
   var enabled=model.interactive(item),row=node(enabled?'button':'div','u60-setting'+(enabled?' actionable':''));if(enabled)row.attr('type','button').on('click',function(){openItem(item);});
   row.append(node('span','u60-setting-label',item.label),node('span','u60-setting-value',item.value));if(enabled)row.append(node('span','u60-chevron','›').attr('aria-hidden','true'));else if(item.reason&&item.enabled===false){row.addClass('unavailable');row.append(node('small','u60-setting-reason',item.reason));}card.append(row);
  });return card;}
- function render(){if(!present())return;var meta=pageMeta[tab]||pageMeta.overview;root.find('.u60-head h1').text(meta[0]);if(!snapshot)return;var openDetails={};root.find('details').each(function(){if(this.id)openDetails[this.id]=this.open;});var content=root.find('.u60-content').empty(),d=snapshot.data||{};
+ function render(){if(!present())return;var meta=pageMeta[tab]||pageMeta.overview;root.find('.u60-head h1').text(meta[0]);root.find('.u60-page-description').text(meta[1]);if(!snapshot)return;var openDetails={};root.find('details').each(function(){if(this.id)openDetails[this.id]=this.open;});var content=root.find('.u60-content').empty(),d=snapshot.data||{};
   if(tab==='overview'){
    var metrics=node('div','u60-metrics'),relay=d.wifi_relay||{},usb=d.usb||{},clash=d.clash||{};
    var verdict=clash.verdict||'';var verdictLabel={takeover:'代理已生效',partial:'转发不完整',unverified:'未核验',core_down:'核心未运行',tailscale:'Tailscale 出口',error:'异常'}[verdict]||(clash.online?({rule:'规则分流',global:'全局代理',direct:'直连'}[clash.mode]||'运行中'):'已停止');
-   var values=[['上网与代理',verdictLabel,({clash:'Clash 代理',direct:'直连',tailscale:'Tailscale 出口'})[d.network_profile]||d.network_profile,'clash'],['私网组网',({Running:'已连接',Stopped:'已停止',NeedsLogin:'待登录'})[d.tailscale_status]||d.tailscale_status,'Tailscale','tailscale'],['Wi-Fi 中继',(((snapshot.sections||[]).find(function(s){return s.id==='wifi';})||{}).items||[]).find(function(i){return i.id==='relay';})?.value||(relay.enabled?'已开启':'未开启'),'连接上游 Wi-Fi','network'],['USB 连接',d.usb_status,'区分数据线与外接网卡','network']];
+   var values=[['代理',verdictLabel,({clash:'Clash 代理',direct:'直连',tailscale:'Tailscale 出口'})[d.network_profile]||d.network_profile,'clash'],['组网',({Running:'已连接',Stopped:'已停止',NeedsLogin:'待登录'})[d.tailscale_status]||d.tailscale_status,'Tailscale','tailscale'],['Wi-Fi 中继',(((snapshot.sections||[]).find(function(s){return s.id==='wifi';})||{}).items||[]).find(function(i){return i.id==='relay';})?.value||(relay.enabled?'已开启':'未开启'),'连接上游 Wi-Fi','network'],['USB 连接',d.usb_status,'区分数据线与外接网卡','network']];
    values.forEach(function(x){metrics.append(node('button','u60-metric').attr('type','button').append(node('span','u60-metric-label',x[0]),node('strong','',x[1]),node('span','u60-metric-detail',x[2]+' · 查看 ›')).on('click',function(){selectTab(x[3]);}));});content.append(metrics);
    if(verdict==='partial'||verdict==='unverified'||verdict==='core_down')content.append(node('p','u60-notice error','代理尚未完整生效：'+model.readable(clash.verdict_text||'请检查转发规则')));
-   var shortcuts=node('div','u60-shortcuts');[['network','中继与网口','Wi-Fi 上游、AUTO / WAN / LAN'],['clash','Clash','订阅、节点、规则与连接'],['tailscale','Tailscale','组网设备、出口与子网路由'],['device','充电与深待机','充电上限、供电方向、待机服务']].forEach(function(x){shortcuts.append(node('button','u60-shortcut').append(node('strong','',x[1]),node('span','',x[2]),node('b','','↗')).on('click',function(){selectTab(x[0]);}));});content.append(shortcuts);
+   var shortcuts=node('div','u60-shortcuts');[['device','电源管理','充电上限、供电方向与待机策略'],['more','工具与诊断','连通测试、无线信号与高级工具']].forEach(function(x){shortcuts.append(node('button','u60-shortcut').append(node('strong','',x[1]),node('span','',x[2]),node('b','','›')).on('click',function(){selectTab(x[0]);}));});content.append(shortcuts);
    content.append(node('p','u60-help','热点、蜂窝网络、流量套餐、短信及路由设置，请使用原厂菜单。'));
 
   }else{
