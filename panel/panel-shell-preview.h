@@ -137,15 +137,15 @@ static void shell_preview_live_regressions(struct drm_buf*b){
  struct app a;shell_preview_fixture(&a);cJSON*d=sh_get(a.shell.snapshot,"data"),*cl=sh_get(d,"clash");
  cJSON_DeleteItemFromObject(d,"clash_status");cJSON_ReplaceItemInObject(cl,"online",cJSON_CreateBool(1));
  a.clash_online=1;shell_render(b,&a);uint16_t before[320*480];memcpy(before,b->map,sizeof(before));
- a.clash_online=0;shell_render(b,&a);int clash_ok=shell_preview_same_region(b,before,12,361,157,386);
+ a.clash_online=0;shell_render(b,&a);int clash_ok=shell_preview_same_region(b,before,12,70,308,94);
  memcpy(before,b->map,sizeof(before));cJSON_DeleteItemFromObject(d,"clock_text");shell_render(b,&a);
  int clock_ok=shell_preview_same_region(b,before,151,0,264,40);
  fprintf(stderr,"Live snapshot regression: Clash=%s clock=%s\n",clash_ok?"PASS":"FAIL",clock_ok?"PASS":"FAIL");
  assert(clash_ok&&clock_ok);
- /* Live online=false must override the legacy flag and a stale text status. */
- a.clash_online=1;cJSON_AddStringToObject(d,"clash_status","运行中");cJSON_ReplaceItemInObject(cl,"online",cJSON_CreateBool(0));shell_render(b,&a);
- assert(!shell_preview_same_region(b,before,12,361,157,386));
- cJSON_DeleteItemFromObject(cl,"online");assert(!strcmp(sh_clash_status(d),"读取中"));
+ /* The verified routing verdict, not core-online or legacy text, owns outlet. */
+ a.clash_online=1;cJSON_AddStringToObject(d,"clash_status","运行中");cJSON_ReplaceItemInObject(cl,"online",cJSON_CreateBool(1));cJSON_AddStringToObject(cl,"verdict","direct");shell_render(b,&a);
+ assert(!shell_preview_same_region(b,before,12,70,308,94));
+ cJSON_DeleteItemFromObject(cl,"verdict");assert(!strcmp(sh_outlet(d),"代理未核验"));
  char clock_buf[16];sh_clock_text(0,clock_buf,sizeof(clock_buf));assert(!strcmp(clock_buf,"--:--"));
  assert(text_width("100",14)<=28&&text_width("23:59",22)<=58);
  cJSON*usage=cJSON_AddObjectToObject(d,"usage");cJSON_AddStringToObject(usage,"warning","normal");shell_render(b,&a);memcpy(before,b->map,sizeof(before));cJSON_ReplaceItemInObject(usage,"warning",cJSON_CreateString("threshold"));shell_render(b,&a);assert(!shell_preview_same_region(b,before,170,184,305,201));
@@ -183,8 +183,8 @@ static void shell_preview_schema(struct drm_buf*b,const char*dir){
  }
  if(sh_section(&a,"usage")){
   sh_open_section(&a,"usage");cJSON*items=sh_get(sh_section(&a,"usage"),"items");
-  for(int i=0;i<5;i++){
-   cJSON*it=cJSON_GetArrayItem(items,i);assert(!strcmp(sh_str(it,"type",""),"form"));if(cJSON_IsFalse(sh_get(it,"enabled")))continue;
+  for(int i=0;i<cJSON_GetArraySize(items);i++){
+   cJSON*it=cJSON_GetArrayItem(items,i);if(strcmp(sh_str(it,"type",""),"form")||cJSON_IsFalse(sh_get(it,"enabled")))continue;
    shell_hit(&a,SH_ITEM+i);assert(a.shell.modal==4&&a.shell.nfields==1);shell_render(b,&a);shell_preview_hits(&a);shell_preview_write(b,dir,30+i);
    shell_hit(&a,SH_FIELD);assert(a.shell.editor==1&&a.shell.key_page==1);shell_render(b,&a);shell_preview_hits(&a);shell_preview_write(b,dir,35+i);
    shell_hit(&a,SH_SEARCH_CLEAR);assert(!a.shell.values[0][0]);shell_hit(&a,SH_KEY+1);shell_hit(&a,SH_KEY+5);shell_hit(&a,SH_DONE);shell_hit(&a,SH_APPLY);
@@ -267,6 +267,22 @@ static void shell_preview_scroll_gestures(struct drm_buf*b,const char*dir){
  y=(a.hits[row].y0+a.hits[row].y1)/2;shell_pointer(&a,100,y,1,0);shell_pointer(&a,100,y,0,1);assert(a.shell.editor&&a.shell.field==23);shell_render(b,&a);assert(!a.shell.scroll_offset);sh_close(&a);cJSON_Delete(a.shell.snapshot);
  }sh_theme=0;puts("PASS: all themes gesture suppression, edge clipping, fixed chrome, remembered menu, last of 96 nodes, last of 24 fields");
 }
+static void shell_preview_management(struct drm_buf*b,const char*dir){
+ struct app a;shell_preview_fixture(&a);
+ cJSON *items=sh_get(sh_section(&a,"clash"),"items");
+ cJSON_AddItemToArray(items,cJSON_Parse("{\"id\":\"add-rule\",\"label\":\"添加规则\",\"type\":\"form\",\"action\":\"preview.rule\",\"fields\":[]}"));
+ panel_menu_layout(a.shell.snapshot);a.shell.tab=2;sh_open_section(&a,"clash");shell_render(b,&a);
+ int link=-1;for(int i=0;i<cJSON_GetArraySize(items);i++)if(!strcmp(sh_str(cJSON_GetArrayItem(items,i),"type",""),"navigation"))link=i;
+ assert(link>=0);shell_hit(&a,SH_ITEM+link);assert(!strcmp(a.shell.section,"clash-more")&&!a.shell.modal);shell_render(b,&a);shell_preview_hits(&a);
+ int back=0;for(int i=0;i<a.nhits;i++)if(a.hits[i].id==SH_BACK)back=1;assert(back);shell_preview_write(b,dir,330);
+ shell_hit(&a,SH_ITEM);assert(a.shell.modal==4&&!strcmp(sh_str(a.shell.draft,"action",""),"preview.rule"));shell_hit(&a,SH_CANCEL);shell_hit(&a,SH_BACK);assert(!strcmp(a.shell.section,"clash")&&a.shell.tab==2);
+ cJSON*choice=cJSON_Parse("{\"label\":\"代理开关\",\"value\":\"开启代理\",\"type\":\"choice\",\"action\":\"preview.service\",\"confirm\":true,\"choices\":[{\"label\":\"开启代理\",\"args\":{\"operation\":\"start\"}},{\"label\":\"关闭代理 · 直连\",\"args\":{\"operation\":\"stop\"}}]}");
+ sh_open_item(&a,choice);cJSON_Delete(choice);assert(sh_choice_current(&a,sh_choice_at(&a.shell,0)));assert(!sh_choice_current(&a,sh_choice_at(&a.shell,1)));cJSON_ReplaceItemInObject(a.shell.draft,"action",cJSON_CreateString("clash.service"));cJSON_ReplaceItemInObject(a.shell.draft,"value",cJSON_CreateString("开启"));assert(sh_choice_current(&a,sh_choice_at(&a.shell,0)));shell_render(b,&a);shell_preview_hits(&a);shell_preview_write(b,dir,331);
+ shell_hit(&a,SH_CHOICE+1);assert(a.shell.modal==2&&!strcmp(a.shell.message,"关闭代理 · 直连"));assert(!strcmp(sh_str(a.shell.pending_args,"operation",""),"stop"));shell_render(b,&a);shell_preview_hits(&a);shell_preview_write(b,dir,332);shell_hit(&a,SH_CANCEL);assert(!a.shell.busy&&!a.shell.pending_args);
+ a.shell.tab=0;a.shell.subpage=0;shell_render(b,&a);shell_preview_hits(&a);for(int i=0;i<a.nhits;i++)assert(a.hits[i].y1-a.hits[i].y0>=44);
+ shell_hit(&a,SH_SECTION+25);assert(a.shell.tab==1&&!strcmp(a.shell.section,"clients"));
+ sh_close(&a);cJSON_Delete(a.shell.snapshot);puts("PASS: child management navigation/back, preserved action routing, current choices, selected confirmation, no write on cancel, home targets >=44px");
+}
 static int shell_preview_main(const char*dir){
  struct app a;struct drm_buf b={0};int page;
  /* Malformed or truncated labels from the backend cannot escape the buffer. */
@@ -290,5 +306,5 @@ static int shell_preview_main(const char*dir){
  /* A new snapshot cannot destroy the open form or its unsaved edits. */
  shell_preview_fixture(&a);sh_open_item(&a,cJSON_GetArrayItem(sh_get(sh_section(&a,"wifi"),"items"),1));shell_hit(&a,SH_FIELD);shell_hit(&a,SH_KEY);assert(!strcmp(a.shell.values[0],"U60-PROa"));cJSON_Delete(a.shell.snapshot);a.shell.snapshot=cJSON_CreateObject();assert(!strcmp(a.shell.values[0],"U60-PROa"));assert(!strcmp(sh_str(a.shell.draft,"label",""),"无线名称与密码"));shell_hit(&a,SH_DONE);shell_hit(&a,SH_FIELD+2);assert(a.shell.modal==5);shell_hit(&a,SH_CHOICE);assert(!strcmp(a.shell.values[2],"2g"));assert(a.shell.modal==4);
  shell_hit(&a,SH_FIELD);memset(a.shell.values[0],'x',SHELL_VALUE_CAP-1);a.shell.values[0][SHELL_VALUE_CAP-1]=0;shell_hit(&a,SH_KEY);assert(strlen(a.shell.values[0])==SHELL_VALUE_CAP-1);strcpy(a.shell.values[0],"中文");shell_hit(&a,SH_DELETE);assert(!strcmp(a.shell.values[0],"中"));shell_hit(&a,SH_DONE);shell_hit(&a,SH_CANCEL);assert(!a.shell.draft);cJSON_Delete(a.shell.snapshot);
- shell_preview_nav_icons(&b);shell_preview_scroll_gestures(&b,dir);shell_preview_theme_menu(&b,dir);shell_preview_search_tests(&b,dir);shell_preview_reports(&b,dir);shell_preview_schema(&b,dir);free(b.map);puts("PASS: 20 native shell states; nonoverlapping hits; draft isolation; 96-choice search, region aliases, scrolling, refreshed snapshot selection args, cancel/clear, field choice mapping, UTF-8 and buffer bounds");return 0;
+ shell_preview_management(&b,dir);shell_preview_nav_icons(&b);shell_preview_scroll_gestures(&b,dir);shell_preview_theme_menu(&b,dir);shell_preview_search_tests(&b,dir);shell_preview_reports(&b,dir);shell_preview_schema(&b,dir);free(b.map);puts("PASS: 20 native shell states; nonoverlapping hits; draft isolation; 96-choice search, region aliases, scrolling, refreshed snapshot selection args, cancel/clear, field choice mapping, UTF-8 and buffer bounds");return 0;
 }

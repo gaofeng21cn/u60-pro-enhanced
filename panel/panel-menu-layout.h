@@ -1,9 +1,6 @@
 #ifndef PANEL_MENU_LAYOUT_H
 #define PANEL_MENU_LAYOUT_H
-/* Screen-only projection of the Clash menu: keep daily controls on the first
- * page and push configuration work into an explicit "更多" entry. Action
- * payloads are never rebuilt, only reordered or moved between sections. */
-/* Screen presentation only. Keep action payloads and backend state intact. */
+/* Screen-only grouping. Backend state and action payloads remain authoritative. */
 static const char *menu_str(cJSON *o,const char *key){
  cJSON *v=cJSON_GetObjectItemCaseSensitive(o,key);return cJSON_IsString(v)?v->valuestring:"";
 }
@@ -16,19 +13,24 @@ static int menu_rank(cJSON *item){
  const char *type=menu_str(item,"type"),*action=menu_str(item,"action");
  if(!strcmp(type,"info"))return 2;
  if(cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(item,"enabled")))return 3;
- if(*action||!strcmp(type,"report"))return 0;
+ if(*action||!strcmp(type,"report")||!strcmp(type,"navigation"))return 0;
  return 2;
 }
 static int menu_priority(cJSON *item,const char *section){
  if(!strcmp(menu_str(item,"id"),"menu.unavailable"))return 104;
  if(!strcmp(section,"clash")){
-  /* The proxy page is curated: state, switch, mode, quick picks, then the
-   * verdict, so the first screen answers "how do I get online" and "is it
-   * actually on". Everything else falls back to the generic ranking. */
-  static const char *const daily[]={"service","mode","node","favorite","recent","favorite-current","coverage","diagnose","scope"};
-  for(int n=0;n<9;n++)if(!strcmp(menu_str(item,"id"),daily[n]))return n;
+  static const char *const daily[]={"coverage","service","mode","node","favorite","recent","favorite-current","menu.clash-more"};
+  for(int n=0;n<8;n++)if(!strcmp(menu_str(item,"id"),daily[n]))return n;
   if(menu_rank(item))return 100+menu_rank(item);
   return 20;
+ }
+ if(!strcmp(section,"clash-more")&&menu_rank(item)==0){
+  static const char *const actions[]={"clash.provider","clash.rule_provider","clash.rule_add","clash.diagnose","diag.connections","clash.close_connections","clash.delay","clash.flush_dns","clash.about"};
+  for(int n=0;n<9;n++)if(!strcmp(menu_str(item,"action"),actions[n]))return n;
+ }
+ if(!strcmp(section,"tailscale")){
+  static const char *const daily[]={"backend","connected","lan-gateway","advertise_lan","self-ip","menu.tailscale-more"};
+  for(int n=0;n<6;n++)if(!strcmp(menu_str(item,"id"),daily[n]))return n;
  }
  if(menu_rank(item))return 100+menu_rank(item);
  if(!strcmp(section,"system")){
@@ -71,23 +73,69 @@ static void menu_compact(cJSON *section){
   else {snprintf(summary,sizeof(summary),"%d 项 · 查看原因",unavailable);cJSON_AddItemToArray(items,menu_report("menu.unavailable","暂不可用",summary,detail));}
  }
 }
+/* Create real child menus instead of decorating an otherwise flat long list.
+ * Detach the original objects so confirmations, gates and args stay intact. */
+static void menu_group(cJSON *root,const char *source,const char *child,const char *title,const char *note){
+ cJSON *section=menu_section(root,source);if(!section||menu_section(root,child))return;
+ cJSON *items=cJSON_GetObjectItemCaseSensitive(section,"items"),*more=cJSON_CreateObject();
+ cJSON_AddStringToObject(more,"id",child);cJSON_AddStringToObject(more,"title",title);cJSON_AddStringToObject(more,"parent",source);
+ cJSON *dest=cJSON_AddArrayToObject(more,"items");
+ for(int n=0;n<cJSON_GetArraySize(items);){
+  cJSON *it=cJSON_GetArrayItem(items,n);const char *id=menu_str(it,"id");
+  int keep=!*id;
+  const char *clash[]={"coverage","service","mode","node","favorite","recent","favorite-current","global-target"};
+  const char *tailscale[]={"backend","connected","lan-gateway","advertise_lan","self-ip"};
+  const char **daily=!strcmp(source,"clash")?clash:tailscale;size_t count=!strcmp(source,"clash")?8:5;
+  for(size_t k=0;k<count;k++)if(!strcmp(id,daily[k]))keep=1;
+  if(keep)n++;else {cJSON_DetachItemViaPointer(items,it);cJSON_AddItemToArray(dest,it);}
+ }
+ if(!cJSON_GetArraySize(dest)){cJSON_Delete(more);return;}
+ cJSON_AddItemToArray(cJSON_GetObjectItemCaseSensitive(root,"sections"),more);
+ cJSON *link=cJSON_CreateObject();char id[64];snprintf(id,sizeof(id),"menu.%s",child);
+ cJSON_AddStringToObject(link,"id",id);cJSON_AddStringToObject(link,"type","navigation");cJSON_AddStringToObject(link,"label",title);
+ cJSON_AddStringToObject(link,"value",note);cJSON_AddStringToObject(link,"section",child);cJSON_AddBoolToObject(link,"enabled",1);cJSON_AddItemToArray(items,link);
+}
 static void panel_menu_layout(cJSON *root){
- cJSON *sys=menu_section(root,"system"),*battery=menu_section(root,"battery");
- /* Clash keeps daily controls first; configuration-heavy entries are marked so
-   * the scrolling list shows an obvious split instead of one flat wall. */
- cJSON *clash=menu_section(root,"clash");
+ cJSON *sys=menu_section(root,"system"),*battery=menu_section(root,"battery"),*clash=menu_section(root,"clash");
  if(clash){
-  /* The bottom tab reads "代理"; keep the header consistent on the screen. */
   cJSON_ReplaceItemInObjectCaseSensitive(clash,"title",cJSON_CreateString("代理"));
-  static const char *const advanced[]={"clash.provider","rule-providers","connections","dns","add-rule"};
+  cJSON *connections=cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(root,"data"),"clash"),"connections");
   cJSON *it;cJSON_ArrayForEach(it,cJSON_GetObjectItemCaseSensitive(clash,"items")){
-   const char *id=menu_str(it,"id"),*label=menu_str(it,"label");
-   if(!*label||!strncmp(label,"更多 · ",9))continue;
-   int move=!strncmp(id,"local-rule-",11);
-   for(size_t n=0;n<sizeof(advanced)/sizeof(advanced[0])&&!move;n++)if(!strcmp(id,advanced[n]))move=1;
-   if(move){char next[96];snprintf(next,sizeof(next),"更多 · %s",label);cJSON_ReplaceItemInObjectCaseSensitive(it,"label",cJSON_CreateString(next));}
+   if(!strcmp(menu_str(it,"id"),"connections")&&cJSON_IsNumber(connections)&&connections->valuedouble==0){
+    cJSON_ReplaceItemInObjectCaseSensitive(it,"type",cJSON_CreateString("info"));
+    cJSON_ReplaceItemInObjectCaseSensitive(it,"value",cJSON_CreateString("暂无活动连接"));
+    cJSON_ReplaceItemInObjectCaseSensitive(it,"enabled",cJSON_CreateBool(0));
+   }
+  }
+  cJSON_ArrayForEach(it,cJSON_GetObjectItemCaseSensitive(clash,"items"))if(!strcmp(menu_str(it,"id"),"coverage")){
+   cJSON_ReplaceItemInObjectCaseSensitive(it,"type",cJSON_CreateString("report"));
+   cJSON_ReplaceItemInObjectCaseSensitive(it,"label",cJSON_CreateString("实际代理状态"));
+   cJSON_ReplaceItemInObjectCaseSensitive(it,"enabled",cJSON_CreateBool(1));
   }
  }
+ menu_group(root,"clash","clash-more","代理管理","订阅、规则与诊断");
+ cJSON *ts=menu_section(root,"tailscale");
+ if(ts){
+  cJSON_ReplaceItemInObjectCaseSensitive(ts,"title",cJSON_CreateString("组网"));
+  cJSON *items=cJSON_GetObjectItemCaseSensitive(ts,"items"),*it;int online=0;char peers[8192]="";int count=0;
+  cJSON_ArrayForEach(it,items)if(!strcmp(menu_str(it,"id"),"backend")){
+   const char *value=menu_str(it,"value");online=!strcmp(value,"Running")||!strcmp(value,"已连接");
+   const char *raw[]={"Running","Stopped","NeedsLogin","NeedsMachineAuth","Starting","NoState"};
+   const char *zh[]={"已连接","已停止","需要登录","等待授权","连接中","状态未知"};
+   for(int k=0;k<6;k++)if(!strcmp(value,raw[k])){cJSON_ReplaceItemInObjectCaseSensitive(it,"value",cJSON_CreateString(zh[k]));break;}
+  }
+  for(int n=0;n<cJSON_GetArraySize(items);){
+   it=cJSON_GetArrayItem(items,n);
+   if(!strncmp(menu_str(it,"id"),"peer_",5)){
+    menu_line(peers,sizeof(peers),menu_str(it,"label"),menu_str(it,"value"));cJSON_DeleteItemFromArray(items,n);count++;
+   }else {if(!online&&!strcmp(menu_str(it,"id"),"self-ip"))cJSON_ReplaceItemInObjectCaseSensitive(it,"label",cJSON_CreateString("最近分配的地址"));n++;}
+  }
+  if(count){char summary[80];snprintf(summary,sizeof(summary),"%d 台 · %s",count,online?"查看状态":"最近记录");
+   if(!online){char detail[8500];snprintf(detail,sizeof(detail),"组网未连接，以下为最近获取的设备记录，不能据此判断当前是否可达。\n\n%s",peers);cJSON_AddItemToArray(items,menu_report("menu.peers","组网设备记录",summary,detail));}
+   else cJSON_AddItemToArray(items,menu_report("menu.peers","组网设备",summary,peers));
+  }
+ }
+ menu_group(root,"tailscale","tailscale-more","组网管理","设备、出口与高级设置");
  if(battery){
   cJSON_ReplaceItemInObjectCaseSensitive(battery,"title",cJSON_CreateString("电池与省电"));
   cJSON *src=cJSON_GetObjectItemCaseSensitive(sys,"items"),*dst=cJSON_GetObjectItemCaseSensitive(battery,"items"),*it;

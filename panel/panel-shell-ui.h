@@ -102,7 +102,7 @@ static cJSON *sh_section(struct app *a,const char *id){cJSON *s; cJSON_ArrayForE
  * Neutral backgrounds and warning/battery status glyphs are not category cards. */
 enum {SH_NETWORK_COLOR,SH_DEVICE_COLOR,SH_SERVICE_COLOR};
 static int sh_color_group(const char *section){
- if(!strcmp(section,"clash")||!strcmp(section,"tailscale")||!strcmp(section,"sms"))return SH_SERVICE_COLOR;
+ if(!strncmp(section,"clash",5)||!strncmp(section,"tailscale",9)||!strcmp(section,"sms"))return SH_SERVICE_COLOR;
  const char*network[]={"wifi","cell","usb","router","band","signal","diagnostics"};
  for(size_t n=0;n<sizeof(network)/sizeof(network[0]);n++)if(!strcmp(section,network[n]))return SH_NETWORK_COLOR;
  return SH_DEVICE_COLOR;
@@ -165,7 +165,7 @@ static void sh_prepare(struct app*a,cJSON*args){
 }
 static int sh_item_interactive(cJSON*item){
  if(!item||cJSON_IsFalse(sh_get(item,"enabled"))||!strcmp(sh_str(item,"type","info"),"info"))return 0;
- return !strcmp(sh_str(item,"type",""),"report")||sh_str(item,"action","")[0];
+ return !strcmp(sh_str(item,"type",""),"navigation")||!strcmp(sh_str(item,"type",""),"report")||sh_str(item,"action","")[0];
 }
 static void sh_open_item(struct app*a,cJSON*item){
  if(!sh_item_interactive(item))return;
@@ -174,6 +174,7 @@ static void sh_open_item(struct app*a,cJSON*item){
  sh_close(a);s->draft=cJSON_Duplicate(item,1);if(!s->draft)return;
  if(cJSON_IsFalse(sh_get(item,"enabled"))&&strcmp(sh_str(item,"type","info"),"info")){snprintf(s->message,sizeof(s->message),"%s",sh_str(item,"reason","暂不可用，请刷新后重试"));s->modal=3;return;}
  type=sh_str(item,"type","info");
+ if(!strcmp(type,"navigation")){sh_open_section(a,sh_str(item,"section",""));sh_close(a);return;}
  if(!strcmp(type,"form")){
   cJSON*fs=sh_get(s->draft,"fields");int total=cJSON_GetArraySize(fs);
   if(total>SHELL_MAX_FIELDS){snprintf(s->message,sizeof(s->message),"此表单字段超出屏幕容量，暂不能安全提交");s->modal=3;return;}
@@ -209,12 +210,30 @@ static void sh_row(struct drm_buf*b,struct app*a,int y,const char*title,const ch
  else {sh_text(b,24,y+8,title,14,SH_MUTED,255);sh_text(b,24,y+30,value,17,enabled?SH_TEXT:SH_MUTED,251);}
  if(id&&enabled){sh_text(b,285,y+20,"›",20,sh_category_ink(group),16);hit_add(a,12,y,308,y+57,id);}
 }
+static int sh_choice_current(struct app*a,cJSON*c){
+ struct panel_shell*s=&a->shell;
+ if(s->modal==5){cJSON*v=sh_get(c,"value");return cJSON_IsString(v)&&!strcmp(v->valuestring,s->values[s->field]);}
+ const char *current=sh_str(s->draft,"value","");
+ if(!strcmp(sh_str(s->draft,"action",""),"clash.service")){
+  const char*operation=sh_str(sh_get(c,"args"),"operation","");
+  return (!strcmp(current,"开启")&&!strcmp(operation,"start"))||(!strcmp(current,"关闭")&&!strcmp(operation,"stop"));
+ }
+ if(!strcmp(sh_str(s->draft,"action",""),"clash.select")){
+  const char*node=sh_str(sh_get(sh_get(s->snapshot,"data"),"clash"),"node","");
+  const char*name=sh_str(sh_get(c,"args"),"name","");return *node&&*name&&!strcmp(node,name);
+ }
+ return *current&&!strcmp(current,sh_str(c,"label",""));
+}
 static void sh_choice_row(struct drm_buf*b,struct app*a,int y,cJSON*c,int id){
- int enabled=!cJSON_IsFalse(sh_get(c,"enabled"));const char*label=sh_str(c,"label","选项"),*description=sh_str(c,"description","");
- sh_surface(b,12,y,308,y+57,14,sh_category_card(sh_current_group(a)));
- if(text_width(label,15)>249)sh_wrap(b,24,y+7,label,249,2,enabled?SH_TEXT:SH_MUTED);
- else {sh_text(b,24,y+(*description?8:19),label,15,enabled?SH_TEXT:SH_MUTED,249);if(*description)sh_text(b,24,y+32,description,14,SH_MUTED,249);}
- if(enabled){sh_text(b,285,y+20,"›",20,SH_CYAN,16);hit_add(a,12,y,308,y+57,id);}
+ int enabled=!cJSON_IsFalse(sh_get(c,"enabled")),selected=sh_choice_current(a,c);const char*label=sh_str(c,"label","选项"),*description=sh_str(c,"description","");
+ int width=selected?208:249;
+ sh_surface(b,12,y,308,y+57,14,selected?SH_RAISED:sh_category_card(sh_current_group(a)));
+ if(text_width(label,15)>width)sh_wrap(b,24,y+7,label,width,2,enabled?SH_TEXT:SH_MUTED);
+ else {sh_text(b,24,y+(*description?8:19),label,15,SH_TEXT,width);if(*description)sh_text(b,24,y+32,description,14,SH_MUTED,width);}
+ if(selected)sh_text(b,251,y+21,"当前",14,SH_CYAN,45);
+ else if(enabled)sh_text(b,285,y+20,"›",20,SH_CYAN,16);
+ if(enabled)hit_add(a,12,y,308,y+57,id);
+
 }
 static const char *sh_net_sections[]={"wifi","cell","usb","router","clients"};
 static const char *sh_net_titles[]={"Wi-Fi","蜂窝网络","USB 与网口","路由与安全","已连接设备"};
@@ -224,9 +243,17 @@ static const char *sh_settings_titles[]={"电源与屏幕","电池与省电","�
 static const char *sh_settings_notes[]={"主题、亮度与设备信息","充电、待机与供电策略","额度、月结日与用量","载波、信号与锁定工具","读取通知与验证码","频段限制与恢复自动","卡槽与安全状态","分流记录与网站测试"};
 /* The asynchronous snapshot owns service state, while the clock is local.
  * Neither may fall back to fields from the retired synchronous UI. */
-static const char *sh_clash_status(cJSON*d){
- cJSON*online=sh_get(sh_get(d,"clash"),"online");
- return cJSON_IsBool(online)?(cJSON_IsTrue(online)?"运行中":"未连接"):"读取中";
+static const char *sh_outlet(cJSON*d){
+ const char *verdict=sh_str(sh_get(d,"clash"),"verdict","");
+ if(!strcmp(verdict,"takeover"))return "代理生效";
+ if(!strcmp(verdict,"partial"))return "代理不完整";
+ if(!strcmp(verdict,"unverified"))return "代理未核验";
+ if(!strcmp(verdict,"core_down"))return "代理核心未运行";
+ if(!strcmp(verdict,"error"))return "代理异常";
+ if(!strcmp(verdict,"direct"))return "直连";
+ if(!strcmp(verdict,"tailscale"))return "Tailscale";
+ const char *profile=sh_str(d,"network_profile","");
+ return !strcmp(profile,"clash")?"代理未核验":!strcmp(profile,"tailscale")?"Tailscale":!strcmp(profile,"direct")?"直连":"未确认";
 }
 static void sh_clock_text(time_t now,char*out,size_t n){
  struct tm tm;if(localtime_r(&now,&tm)&&tm.tm_year>=120)strftime(out,n,"%H:%M",&tm);else snprintf(out,n,"--:--");
@@ -279,25 +306,21 @@ static void sh_statusbar(struct drm_buf*b,struct app*a,time_t now){
 static void sh_home(struct drm_buf*b,struct app*a){
  struct panel_shell*s=&a->shell;cJSON*d=sh_get(s->snapshot,"data"),*cl=sh_get(d,"clash");char tmp[160],down[40],up[40],today[40],month[40],quota[40],used[40];
  if(!strcmp(sh_str(d,"physical_iface",""),"u60sta"))snprintf(tmp,sizeof(tmp),"%s",sh_str(d,"wifi_status","Wi-Fi 上游中继"));else snprintf(tmp,sizeof(tmp),"%s · %s",sh_str(d,"operator",a->operator[0]?a->operator:"运营商未知"),sh_str(d,"network",a->net_type[0]?a->net_type:"网络未知"));sh_text(b,16,51,tmp,15,SH_CYAN,287);
- const char*profile=sh_str(d,"network_profile","");const char*outlet=!strcmp(profile,"clash")?"Clash":!strcmp(profile,"tailscale")?"Tailscale":!strcmp(profile,"direct")?"直连":"未确认";
- /* Prefer the shared verdict so the home line matches the web page instead of
-   * claiming "代理" from the stored profile alone. */
- const char*verdict=sh_str(cl,"verdict","");
- if(!strcmp(verdict,"takeover"))outlet="代理生效";else if(!strcmp(verdict,"partial"))outlet="代理不完整";else if(!strcmp(verdict,"unverified"))outlet="代理未核验";else if(!strcmp(verdict,"core_down"))outlet="代理核心未运行";else if(!strcmp(verdict,"error"))outlet="代理异常";
- snprintf(tmp,sizeof(tmp),"出口 %s · %s · %s",outlet,sh_str(d,"band",a->band[0]?a->band:"频段未知"),sh_str(d,"physical_iface","接口未知"));sh_text(b,16,74,tmp,14,SH_MUTED,287);hit_add(a,12,45,308,91,SH_SECTION+1);
+ snprintf(tmp,sizeof(tmp),"出口 · %s",sh_outlet(d));sh_text(b,16,74,tmp,14,SH_MUTED,287);
  sh_surface(b,12,96,308,167,13,sh_category_card(SH_NETWORK_COLOR));sh_metric(d,"download_bps",down,sizeof(down),1);sh_metric(d,"upload_bps",up,sizeof(up),1);
  sh_text(b,24,105,"↓ 下载",14,SH_MUTED,130);sh_text(b,170,105,"↑ 上传",14,SH_MUTED,126);sh_text(b,24,128,down,24,SH_TEXT,135);sh_text(b,170,128,up,24,SH_TEXT,126);
  sh_metric(d,"today_bytes",today,sizeof(today),0);sh_metric(d,"month_bytes",month,sizeof(month),0);sh_surface(b,12,174,308,230,11,sh_category_card(SH_DEVICE_COLOR));
  sh_text(b,24,184,"蜂窝流量",14,SH_MUTED,100);cJSON*usage=sh_get(d,"usage");const char*warning_state=sh_str(usage,"warning","");int warning=!strcmp(warning_state,"threshold")||!strcmp(warning_state,"exceeded");sh_text(b,170,184,warning?"套餐用量预警 ›":"套餐台账 ›",14,warning?SH_CYAN:SH_MUTED,126);snprintf(tmp,sizeof(tmp),"今日 %s",today);sh_text(b,24,206,tmp,17,SH_TEXT,138);snprintf(tmp,sizeof(tmp),"本月 %s",month);sh_text(b,170,206,tmp,17,SH_TEXT,126);hit_add(a,12,174,308,230,SH_SECTION+24);
- sh_surface(b,12,237,308,326,12,sh_category_card(SH_SERVICE_COLOR));snprintf(tmp,sizeof(tmp),"Clash · %s",mode_label(sh_str(cl,"mode",a->mode)));sh_text(b,24,247,tmp,16,sh_category_ink(SH_SERVICE_COLOR),181);
+ sh_surface(b,12,237,308,326,12,sh_category_card(SH_SERVICE_COLOR));snprintf(tmp,sizeof(tmp),"已选节点 · %s",mode_label(sh_str(cl,"mode","")));sh_text(b,24,247,tmp,16,sh_category_ink(SH_SERVICE_COLOR),181);
  char connections[24];sh_value(sh_get(cl,"connections"),connections,sizeof(connections));snprintf(tmp,sizeof(tmp),"%s 连接",connections);sh_text(b,220,248,tmp,15,SH_MUTED,78);
- sh_text(b,24,272,sh_str(cl,"node",a->node[0]?a->node:"当前节点待确认"),17,SH_TEXT,268);
+ sh_text(b,24,272,sh_str(cl,"node","尚未选择节点"),17,SH_TEXT,268);
  sh_metric(cl,"quota_remaining",quota,sizeof(quota),0);snprintf(tmp,sizeof(tmp),"剩余 %s",quota);sh_text(b,24,302,tmp,15,SH_TEXT,139);
  cJSON*u=sh_get(cl,"upload"),*v=sh_get(cl,"download");if(cJSON_IsNumber(u)&&cJSON_IsNumber(v))sh_units(u->valuedouble+v->valuedouble,used,sizeof(used),0);else snprintf(used,sizeof(used),"—");snprintf(tmp,sizeof(tmp),"累计 %s",used);sh_text(b,170,302,tmp,15,SH_MUTED,126);hit_add(a,12,237,308,326,SH_SECTION+22);
- const char*labels[]={"Wi-Fi","USB","代理","组网"};const char*keys[]={"wifi_status","usb_status","clash_status","tailscale_status"};const char*fallback[]={"未知","未知","读取中","未知"};
- for(int i=0;i<4;i++){int x=12+(i%2)*151,y=332+(i/2)*29;sh_surface(b,x,y,x+145,y+25,7,sh_category_card(i<2?SH_NETWORK_COLOR:SH_SERVICE_COLOR));sh_text(b,x+8,y+5,labels[i],15,SH_MUTED,46);sh_text(b,x+59,y+5,i==2?sh_clash_status(d):sh_str(d,keys[i],fallback[i]),15,SH_TEXT,80);hit_add(a,x,y,x+145,y+25,SH_SECTION+20+i);}
- char cpu[24],mem[24],temp[24],clients[24];cJSON*cp=sh_get(d,"cpu_percent"),*mp=sh_get(d,"memory_percent");if(cJSON_IsNumber(cp))snprintf(cpu,sizeof(cpu),"%.0f",cp->valuedouble);else snprintf(cpu,sizeof(cpu),"—");if(cJSON_IsNumber(mp))snprintf(mem,sizeof(mem),"%.0f",mp->valuedouble);else snprintf(mem,sizeof(mem),"—");sh_value(sh_get(d,"temperature"),temp,sizeof(temp));sh_value(sh_get(d,"clients"),clients,sizeof(clients));snprintf(tmp,sizeof(tmp),"CPU %s%%  内存 %s%%  %s°C",cpu,mem,temp);sh_text(b,16,391,tmp,16,SH_MUTED,288);
- cJSON*uptime=sh_get(d,"uptime_seconds");if(cJSON_IsNumber(uptime))snprintf(tmp,sizeof(tmp),"运行 %dh %dm · %s 台在线",uptime->valueint/3600,(uptime->valueint/60)%60,clients);else snprintf(tmp,sizeof(tmp),"运行时间 — · %s 台在线",clients);sh_text(b,16,412,tmp,16,SH_MUTED,288);
+ const char*labels[]={"Wi-Fi 热点","USB 与网口"};const char*keys[]={"wifi_status","usb_status"};
+ for(int i=0;i<2;i++){int x=12+i*151;sh_surface(b,x,333,x+145,378,10,sh_category_card(SH_NETWORK_COLOR));sh_text(b,x+10,341,labels[i],14,SH_MUTED,125);sh_text(b,x+10,358,sh_str(d,keys[i],"状态未知"),15,SH_TEXT,125);hit_add(a,x,333,x+145,378,SH_SECTION+20+i);}
+ char clients[24];sh_value(sh_get(d,"clients"),clients,sizeof(clients));
+ sh_surface(b,12,383,308,430,9,sh_category_card(SH_DEVICE_COLOR));snprintf(tmp,sizeof(tmp),"已连接设备 · %s 台",clients);sh_text(b,24,399,tmp,16,SH_TEXT,250);sh_text(b,285,398,"›",20,SH_CYAN,16);hit_add(a,12,383,308,430,SH_SECTION+25);
+
 }
 static void sh_navigation(struct drm_buf*b,struct app*a){
  static const char*t[]={"总览","网络","代理","组网","设置"};
@@ -404,7 +427,7 @@ static void sh_modal(struct drm_buf*b,struct app*a){
   if(!n)sh_wrap(b,24,151,"没有匹配选项，请修改或清空搜索。",272,3,SH_MUTED);
   sh_button(b,a,12,432,296,40,"取消",SH_CANCEL,0);
  }
- else {sh_wrap(b,20,117,s->modal==2?sh_str(s->draft,"reason","确认后立即应用此设置，请核对所选内容。"):s->message,278,14,SH_MUTED);sh_button(b,a,20,365,s->modal==2?132:280,48,s->modal==2?"取消":"返回",SH_CANCEL,0);if(s->modal==2)sh_button(b,a,168,365,132,48,"确认应用",SH_CONFIRM,1);}
+ else {int y=117;if(s->modal==2&&s->message[0]){sh_text(b,20,y,"将应用",14,SH_MUTED,278);sh_wrap(b,20,y+28,s->message,278,3,SH_TEXT);y+=110;}sh_wrap(b,20,y,s->modal==2?sh_str(s->draft,"reason","确认后立即应用此设置，请核对所选内容。"):s->message,278,s->modal==2?5:10,SH_MUTED);sh_button(b,a,20,365,s->modal==2?132:280,48,s->modal==2?"取消":"返回",SH_CANCEL,0);if(s->modal==2)sh_button(b,a,168,365,132,48,"确认应用",SH_CONFIRM,1);}
 }
 static void shell_render(struct drm_buf*b,struct app*a){
 #ifndef PANEL_PREVIEW
@@ -414,7 +437,8 @@ static void shell_render(struct drm_buf*b,struct app*a){
  s->scroll_offset=NULL;draw_clip_top=0;draw_clip_bottom=H;
  if(s->tab<0||s->tab>4)s->tab=0;sh_background(b,0,0,320,480);hit_reset(a);
  const char*title=s->subpage?sh_str(sh_section(a,s->section),"title",s->section):titles[s->tab];
- int back=s->subpage&&s->tab!=2&&s->tab!=3;
+ int child=sh_str(sh_section(a,s->section),"parent","")[0]!=0;
+ int back=s->subpage&&(child||(s->tab!=2&&s->tab!=3));
  sh_text(b,16,13,back?"‹":"",21,SH_CYAN,20);sh_text(b,back?38:16,14,title,19,SH_TEXT,back?100:122);if(back)hit_add(a,0,0,140,44,SH_BACK);
  sh_statusbar(b,a,time(NULL));
  if(s->tab==0)sh_home(b,a);else if(s->subpage)sh_detail(b,a);else if(s->tab==1||s->tab==4)sh_section_list(b,a);else {sh_open_section(a,s->tab==2?"clash":"tailscale");sh_detail(b,a);}
@@ -463,13 +487,13 @@ static int shell_hit(struct app*a,int id){
   if(s->modal==2&&id==SH_CONFIRM){cJSON*args=cJSON_Duplicate(s->pending_args,1);sh_issue(a,args);cJSON_Delete(args);return 1;}
   if(s->modal==4){if(id==SH_APPLY)sh_save_form(a);else if(id>=SH_FIELD&&id<SH_FIELD+SHELL_MAX_FIELDS){s->field=id-SH_FIELD;if(s->field<s->nfields){cJSON*f=cJSON_GetArrayItem(sh_get(s->draft,"fields"),s->field);const char*k=sh_str(f,"kind","text");s->key_page=(!strcmp(k,"number")||!strcmp(k,"ip"))?1:0;if(!strcmp(k,"choice")){s->modal=5;sh_search_reset(s);}else s->editor=1;s->reveal=0;}}return 1;}
   if(s->modal==5){int n=sh_choice_count(s);if(id>=SH_CHOICE&&id<SH_CHOICE+n){cJSON*c=sh_choice_at(s,id-SH_CHOICE);if(c&&!cJSON_IsFalse(sh_get(c,"enabled"))){cJSON*v=sh_get(c,"value");if(cJSON_IsString(v)&&strlen(v->valuestring)>=SHELL_VALUE_CAP){snprintf(s->message,sizeof(s->message),"选项内容过长");}else sh_value(v,s->values[s->field],SHELL_VALUE_CAP);s->modal=4;sh_search_reset(s);}}return 1;}
-  if(s->modal==1){int n=sh_choice_count(s);if(id>=SH_CHOICE&&id<SH_CHOICE+n){cJSON*c=sh_choice_at(s,id-SH_CHOICE);if(c){if(cJSON_IsFalse(sh_get(c,"enabled")))return 1;else{cJSON*base=sh_get(s->draft,"args");cJSON*args=base?cJSON_Duplicate(base,1):cJSON_CreateObject();cJSON*v;cJSON_ArrayForEach(v,sh_get(c,"args")){if(v->string){cJSON_DeleteItemFromObjectCaseSensitive(args,v->string);cJSON_AddItemToObject(args,v->string,cJSON_Duplicate(v,1));}}const char*override=sh_str(c,"action","");if(*override){cJSON_DeleteItemFromObject(s->draft,"action");cJSON_AddStringToObject(s->draft,"action",override);}sh_prepare(a,args);cJSON_Delete(args);}}}return 1;}return 1;
+  if(s->modal==1){int n=sh_choice_count(s);if(id>=SH_CHOICE&&id<SH_CHOICE+n){cJSON*c=sh_choice_at(s,id-SH_CHOICE);if(c){if(cJSON_IsFalse(sh_get(c,"enabled")))return 1;else{cJSON*base=sh_get(s->draft,"args");cJSON*args=base?cJSON_Duplicate(base,1):cJSON_CreateObject();cJSON*v;cJSON_ArrayForEach(v,sh_get(c,"args")){if(v->string){cJSON_DeleteItemFromObjectCaseSensitive(args,v->string);cJSON_AddItemToObject(args,v->string,cJSON_Duplicate(v,1));}}const char*override=sh_str(c,"action","");if(*override){cJSON_DeleteItemFromObject(s->draft,"action");cJSON_AddStringToObject(s->draft,"action",override);}snprintf(s->message,sizeof(s->message),"%s",sh_str(c,"label","所选设置"));sh_prepare(a,args);cJSON_Delete(args);}}}return 1;}return 1;
  }
  if(id>=SH_TAB&&id<SH_TAB+5){s->menu_offsets[s->tab]=s->menu_page;s->tab=id-SH_TAB;s->menu_page=s->menu_offsets[s->tab];s->subpage=0;s->section[0]=0;s->item_page=0;return 1;}
  if(id==SH_REFRESH){shell_request_refresh(a);return 1;}
  if(id==SH_FACTORY){shell_factory(a);return 1;}
- if(id==SH_BACK){if(s->subpage){s->subpage=0;s->item_page=0;if(s->tab==2||s->tab==3)s->tab=0;}else s->tab=0;return 1;}
- if(id>=SH_SECTION&&id<SH_SECTION+30){i=id-SH_SECTION;if(s->tab==0){if(i==1){s->tab=1;sh_open_section(a,"cell");}else if(i==20||i==21){s->tab=1;sh_open_section(a,i==20?"wifi":"usb");}else if(i==22){s->tab=2;sh_open_section(a,"clash");}else if(i==23){s->tab=3;sh_open_section(a,"tailscale");}else if(i==24){s->tab=4;sh_open_section(a,"usage");}}else if(s->tab==1&&i<5)sh_open_section(a,sh_net_sections[i]);else if(s->tab==4&&i<(int)(sizeof(sh_settings_sections)/sizeof(sh_settings_sections[0])))sh_open_section(a,sh_settings_sections[i]);return 1;}
+ if(id==SH_BACK){const char*parent=sh_str(sh_section(a,s->section),"parent","");if(*parent){sh_open_section(a,parent);return 1;}if(s->subpage){s->subpage=0;s->item_page=0;if(s->tab==2||s->tab==3)s->tab=0;}else s->tab=0;return 1;}
+ if(id>=SH_SECTION&&id<SH_SECTION+30){i=id-SH_SECTION;if(s->tab==0){if(i==1){s->tab=1;sh_open_section(a,"cell");}else if(i==20||i==21){s->tab=1;sh_open_section(a,i==20?"wifi":"usb");}else if(i==22){s->tab=2;sh_open_section(a,"clash");}else if(i==23){s->tab=3;sh_open_section(a,"tailscale");}else if(i==24){s->tab=4;sh_open_section(a,"usage");}else if(i==25){s->tab=1;sh_open_section(a,"clients");}}else if(s->tab==1&&i<5)sh_open_section(a,sh_net_sections[i]);else if(s->tab==4&&i<(int)(sizeof(sh_settings_sections)/sizeof(sh_settings_sections[0])))sh_open_section(a,sh_settings_sections[i]);return 1;}
  if(!s->subpage&&(s->tab==1||s->tab==4))return 1;
  cJSON*items=sh_get(sh_section(a,s->section),"items");int n=cJSON_GetArraySize(items);
  if(id>=SH_ITEM&&id<SH_ITEM+n){cJSON*it=cJSON_GetArrayItem(items,id-SH_ITEM);if(it)sh_open_item(a,it);}
