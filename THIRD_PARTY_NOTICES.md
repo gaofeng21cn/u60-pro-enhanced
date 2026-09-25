@@ -18,6 +18,7 @@
 | [stb_truetype](https://github.com/nothings/stb) | 字体渲染，MIT/公共领域双许可，全文位于 panel/vendor/stb_truetype.h；中兴字体不分发 |
 | [go-yaml v3](https://github.com/go-yaml/yaml/tree/v3.0.1) | YAML解析，许可见 licenses/yaml-v3.txt |
 | Go / musl / LLVM compiler-rt | 构建运行库的许可与版权见 licenses/；工具链本身不打包 |
+| [XiaoMiku01/TetherKit](https://github.com/XiaoMiku01/TetherKit) | 可选的 macOS RNDIS 用户态桥接；本项目只提供调用上游 Homebrew 的助手，不复制其源码或二进制。上游当前声明 MIT，安装和更新由 Homebrew/上游负责 |
 
 项目修改包含：新的五页屏幕与控制层、Wi-Fi/USB/待机协调、原厂网页增强、Clash/Tailscale管理与公开安装流程。第三方头文件与库的原版权人信息是必须保留的许可证信息，不属于用户私人信息。
 

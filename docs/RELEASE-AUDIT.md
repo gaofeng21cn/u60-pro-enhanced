@@ -85,3 +85,9 @@
 
 - B31 ECM 临时试运行与超时恢复；原厂 USB 默认值保持不变。
 - LAN 按实际 USB 网卡驱动识别；AUTO 仍限定已验证的 AX88179。
+
+## v0.1.10-experimental 发布审查
+
+- Mac 直连改用仓库内的 `macos/u60-rndis.sh` 调用上游 TetherKit 用户态 RNDIS 桥接；项目不重新分发 TetherKit 二进制，不修改 U60 USB gadget，也不改变 ADB 组合。
+- macOS 26.5.2 实机只读枚举 U60 `19d2:1404`，TetherKit `v0.1.5 --list` 识别控制接口 0 和数据接口 1；助手 `doctor` 通过 `feth` 创建前置检查。
+- 主机测试、Shell 语法、网页模型和包成员校验通过；Mac 端真实 `feth`/DHCP/默认路由/HTTPS 仍单独验收，不能由枚举结果代替。

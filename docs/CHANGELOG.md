@@ -1,5 +1,11 @@
 # 更新记录
 
+## v0.1.10-experimental · 2026-09-25
+
+- 增加 macOS RNDIS 用户态助手 `macos/u60-rndis.sh`：自动安装/检查 TetherKit、识别 U60 `19d2:1404`、启动 DHCP、查看状态和停止清理。
+- Mac 直连路径保持 U60 原厂 RNDIS 和 ADB 组合，不再依赖 ECM 在线切换；默认不覆盖 Mac 现有默认路由，显式 `--route-all` 才切换出口。
+- 更新安装、使用和验收文档，明确 TetherKit 是外部 MIT 组件，不随本项目重新分发。
+
 ## v0.1.9-experimental · 2026-09-25
 
 - 补充 B31 ECM 限时试运行候选与主机回归；实机 USB 恢复未通过，入口保持禁用。

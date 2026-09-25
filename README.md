@@ -2,7 +2,7 @@
 
 为中兴 U60 Pro（MU5250）国行 **B28 / B31** 提供原生小屏界面、原厂网页增强、Clash/Mihomo、Tailscale、Wi-Fi 接力与 USB 网口管理。保留原厂固件和管理页，双击电源键可切换界面。
 
-**当前版本：[v0.1.9-experimental](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.9-experimental)**。这是实验版：支持固件检查和设备身份绑定，不代表全部网络与硬件组合已经验收。安装前请阅读[验证范围](docs/VALIDATION.md)。
+**当前版本：[v0.1.10-experimental](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.10-experimental)**。这是实验版：支持固件检查和设备身份绑定，不代表全部网络与硬件组合已经验收。安装前请阅读[验证范围](docs/VALIDATION.md)。
 
 ## 先确认你的设备
 
@@ -18,14 +18,14 @@
 
 ## 下载与准备
 
-下载本仓库 Release 中的 `u60-pro-enhanced-v0.1.9-experimental.tar.gz` 和 `SHA256SUMS.txt`，不要使用 GitHub 自动生成的 Source code 压缩包作为安装包。上游 B28 包不能用于 B31。
+下载本仓库 Release 中的 `u60-pro-enhanced-v0.1.10-experimental.tar.gz` 和 `SHA256SUMS.txt`，不要使用 GitHub 自动生成的 Source code 压缩包作为安装包。上游 B28 包不能用于 B31。
 
 macOS 示例（Linux 将 `shasum -a 256` 换成 `sha256sum`）：
 
 ```sh
 shasum -a 256 -c SHA256SUMS.txt
-tar -xzf u60-pro-enhanced-v0.1.9-experimental.tar.gz
-cd u60-pro-enhanced-v0.1.9-experimental
+tar -xzf u60-pro-enhanced-v0.1.10-experimental.tar.gz
+cd u60-pro-enhanced-v0.1.10-experimental
 adb devices
 python3 prepare.py
 ```
@@ -81,10 +81,24 @@ python3 deploy-from-computer.py upgrade
 |---|---|
 | U60 → USB 网卡 → 网线 → 电脑 | 选择 **LAN**，给下游供网；LAN 增加以下驱动的实验性适配： `r8152`、`cdc_ether`、`cdc_ncm`、`aqc111` 与 ASIX 驱动；AUTO 上游目前只对已验证的 AX88179（`0b95:1790`、`ax_usb_nic`）开放 |
 | 上级路由器 → 网线 → USB 网卡 → U60 | 选择 **AUTO**，获取有线上游地址；断线可回蜂窝。AUTO 不会把“没有 DHCP”猜成 LAN |
-| U60 → USB 数据线 → 电脑 | 默认保持原厂 RNDIS；ECM 候选包含 90 秒回退设计，但本轮实机切换后 USB/ADB 未恢复，入口保持禁用；Mac 请使用 Wi-Fi |
+| U60 → USB 数据线 → Mac | 默认保持原厂 RNDIS；Mac 使用仓库附带的 `macos/u60-rndis.sh` 自动安装/检查/启动 TetherKit，取得 `feth` 虚拟网卡后按需启用 DHCP 或默认路由；不切换 U60 USB 组合，不影响 ADB |
 | 上游 Wi-Fi → U60 → 自身热点或 LAN | 支持单个 2.4G／非 DFS 5G 上游、保存网络与同频段重连；不是 Mesh，不聚合两条 Wi-Fi 带宽 |
 
 Wi-Fi 接力支持 **2.4GHz 和非 DFS 的 5GHz 上游**，并非仅限 2.4GHz。5GHz 支持信道 36/40/44/48、149/153/157/161/165；找不到 5GHz 网络时先检查上游信道。
+
+### Mac 数据线直连
+
+macOS 没有原生 RNDIS 网卡驱动。Release 包的 `macos/u60-rndis.sh` 使用上游 [TetherKit](https://github.com/XiaoMiku01/TetherKit) 用户态桥接，不安装内核扩展、不降低 SIP，也不修改 U60 的 USB gadget。首次使用：
+
+```sh
+cd u60-pro-enhanced-v0.1.10-experimental
+sh macos/u60-rndis.sh install
+sh macos/u60-rndis.sh doctor
+sh macos/u60-rndis.sh start
+sh macos/u60-rndis.sh status
+```
+
+需要让 Mac 将默认路由切到 U60 时显式执行 `sh macos/u60-rndis.sh start --route-all`；不带该参数只建立 DHCP 网卡，不覆盖现有 Wi-Fi 默认路由。停止使用 `sh macos/u60-rndis.sh stop`。TetherKit 由其上游以 MIT 许可提供，本项目不重新分发其二进制；Homebrew 会从上游构建并安装。完整限制与排障见[Mac RNDIS 直连](docs/MACOS-RNDIS.md)。
 
 Wi-Fi 接力入口为“小屏：网络 → Wi-Fi → 连接上游 Wi-Fi；网页：增强功能 → 网络”。密码可在小屏或已登录的网页输入；小屏提供独立字符页，连接失败后保留内存草稿供修改重试。要求 5G 主热点开启、访客热点关闭、USB 为 LAN；同频热点可能短暂断开重连。界面分别显示关联/出口和互联网探测，探测失败不自动改变出口。
 
