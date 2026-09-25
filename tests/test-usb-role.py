@@ -166,6 +166,48 @@ esac
         self.cmd('udhcpc','#!/bin/sh\ntouch "$TEST_ROOT/probed"\nexit 1\n')
         return net
 
+    def test_realtek_non_eth0_is_lan_only(self):
+        net=self.adapter();net.rename(net.with_name('eth1'))
+        dev=self.root/'sys/devices/usb/2-1/2-1:1.0'
+        (dev/'driver').unlink();driver=self.root/'sys/bus/usb/drivers/r8152';driver.mkdir();(dev/'driver').symlink_to(driver)
+        (dev.parent/'idVendor').write_text('0bda');(dev.parent/'idProduct').write_text('8153')
+        (self.panel/'usb-role').write_text('LAN')
+        result=json.loads(self.run_role('status').stdout)
+        self.assertTrue(result['lan_supported']);self.assertFalse(result['wan_supported']);self.assertEqual(result['interface'],'eth1')
+        self.assertNotEqual(self.run_role('set','AUTO').returncode,0)
+        self.assertFalse((self.root/'writes').exists())
+        self.cfg.update({'zwrt_router.network.opms_wan_mode':'PPP','network.zte_wan.proto':'rmnet','network.zte_wan6.proto':'rmnet','network.zte_wan.ipv6':'0'})
+        self.cfg.pop('network.zte_wan.ifname');self.cfg.pop('network.zte_wan6.ifname');self.save()
+        self.cmd('ip','''#!/usr/bin/env python3
+import os,pathlib,sys
+r=pathlib.Path(os.environ['TEST_ROOT']);a=sys.argv[1:]
+if 'route' in a:print('default via 10.0.0.1 dev rmnet_data0')
+if a[:3]==['link','set','dev'] and 'master' in a:(r/'sys/class/net'/a[3]/'master').symlink_to('../br-lan')
+''')
+        self.cmd('ebtables', '#!/bin/sh\n[ "$1" != -D ]\n')
+        (self.panel/'network-profile').write_text('direct')
+        for name in ['network-profile.sh','tailscale-lan.sh']:
+            h=self.panel/name;h.write_text('#!/bin/sh\nexit 0\n');h.chmod(0o700)
+        (self.root/'sys/class/net/br-lan').mkdir()
+        self.assertEqual(self.run_role('reconcile').returncode,0)
+        self.assertTrue((net.with_name('eth1')/'master').is_symlink())
+
+    def test_multiple_adapters_and_unknown_drivers_are_rejected(self):
+        net=self.adapter()
+        other=net.with_name('eth1');other.mkdir();(other/'device').symlink_to((net/'device').resolve());(other/'ifindex').write_text('18')
+        r=json.loads(self.run_role('status').stdout)
+        self.assertFalse(r['lan_supported']);self.assertEqual(r['state'],'UNSUPPORTED')
+        self.assertNotEqual(self.run_role('set','LAN').returncode,0)
+        self.assertFalse((self.root/'writes').exists())
+
+    def test_common_driver_admission_does_not_claim_wan(self):
+        net=self.adapter();dev=(net/'device').resolve()
+        for name in ['r8152','cdc_ether','cdc_ncm','aqc111','asix','ax88179_178a','unknown_driver']:
+            (dev/'driver').unlink();d=self.root/'sys/bus/usb/drivers'/name;d.mkdir(exist_ok=True);(dev/'driver').symlink_to(d)
+            r=json.loads(self.run_role('status').stdout)
+            self.assertEqual(r['lan_supported'],name!='unknown_driver');self.assertFalse(r['wan_supported'])
+        self.assertFalse((self.root/'writes').exists())
+
     def test_lan_switch_refused_with_live_upstream(self):
         self.adapter();r=self.run_role('set','LAN');self.assertNotEqual(r.returncode,0)
         self.assertFalse((self.panel/'usb-role').exists());self.assertFalse((self.root/'writes').exists())

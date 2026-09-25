@@ -104,6 +104,12 @@ static struct sb_inputs sample(void) {
  /* Any attached Ethernet adapter is conservatively in use; sleep never
   * changes LAN/WAN/relay roles or relies on a stale DHCP lease list. */
  if(exists("/sys/class/net/eth0"))s.external=1;
+ char netdir[512];path(netdir,sizeof(netdir),"/sys/class/net");DIR *nets=opendir(netdir);
+ if(nets){struct dirent *entry;while((entry=readdir(nets))){
+  if(entry->d_name[0]=='.')continue;
+  char nic[384];snprintf(nic,sizeof(nic),"/sys/class/net/%s/device/../idVendor",entry->d_name);
+  if(exists(nic)){s.external=1;break;}
+ }closedir(nets);}
  const char *g[]={"/sys/class/net/ecm0/carrier","/sys/class/net/rndis0/carrier","/sys/class/net/usb0/carrier"};
  for(size_t n=0;n<sizeof(g)/sizeof(*g);n++)if(exists(g[n])&&number(g[n])!=0)s.external=1;
  const char *r[]={"wlan0","wlan1","wlan2","wlan3","u60sta"};

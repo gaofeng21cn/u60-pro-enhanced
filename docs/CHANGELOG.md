@@ -1,5 +1,12 @@
 # 更新记录
 
+## v0.1.9-experimental · 2026-09-25
+
+- 补充 B31 ECM 限时试运行候选与主机回归；实机 USB 恢复未通过，入口保持禁用。
+- 外接 USB 网卡按实际驱动和 USB 身份识别，LAN 支持常见 ASIX、Realtek、CDC Ethernet/NCM 与 Aquantia 驱动；AUTO 上游保留已验证 AX88179 限制。
+- 更新 USB 接入说明与验证范围。
+
+
 ## v0.1.8-experimental · 2026-09-25
 
 - 网页主导航和小屏统一“总览、网络、代理、组网”，Clash / Mihomo、Tailscale 保留为页面说明与技术入口。

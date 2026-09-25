@@ -14,7 +14,7 @@ adb shell "ubus -t 5 call zwrt_zte_mdm.api get_zwrt_common_info '{}' | jsonfilte
 
 1. 阅读 README 和[验证范围与风险](VALIDATION.md)；自行备份必要配置，确保知道如何通过 USB ADB 恢复。
 2. 自行启用 root ADB，安装 Google 官方 Android Platform Tools。解锁方法参考社区来源，兼容性自行核对；本项目不执行解锁，也不下载刷机固件。
-3. USB 数据线直接连接电脑，设备保持亮屏；拔下 USB 网卡，电脑保留其他可用网络用于下载依赖。首次安装保持现有 USB/ADB 组合；Mac 的 ECM 直连尚未验证，不运行在线 USB 组合切换。不要远程跨 Tailscale 执行首次安装。
+3. USB 数据线直接连接电脑，设备保持亮屏；拔下 USB 网卡，电脑保留其他可用网络用于下载依赖。首次安装保持现有 USB/ADB 组合；设备默认使用原厂 RNDIS，macOS 直连尚未通过验收，ECM 候选入口保持禁用。请通过 Wi-Fi 管理，不要手动切换 USB 组合。不要远程跨 Tailscale 执行首次安装。
 4. `adb devices` 只连接一台待安装设备；`/data` 至少有 400 MB 可用空间。
 
 macOS/Linux 使用终端；Windows 可用 Python 3 与 `adb.exe`，Windows 完整流程尚未实测。若 adb 不在 PATH，后续每条命令加 `--adb /实际路径/adb`；多设备加 `--serial 目标序列号`，不要把它写到公开 issue 里。
@@ -23,7 +23,7 @@ macOS/Linux 使用终端；Windows 可用 Python 3 与 `adb.exe`，Windows 完�
 
 ### 从本仓库源码构建
 
-可下载本仓库 [v0.1.8-experimental 安装包](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.8-experimental)，下载用户不需要编译器。以下是开发者构建方式。构建依赖 Zig 0.14.1、Go、Python 3 和 Git，主机测试还需 C 编译器和 Node.js。**请显式使用 Zig 0.14.1**：0.16 会构建失败。
+可下载本仓库 [v0.1.9-experimental 安装包](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.9-experimental)，下载用户不需要编译器。以下是开发者构建方式。构建依赖 Zig 0.14.1、Go、Python 3 和 Git，主机测试还需 C 编译器和 Node.js。**请显式使用 Zig 0.14.1**：0.16 会构建失败。
 
 ```sh
 sh scripts/build.sh
@@ -42,7 +42,7 @@ python3 scripts/package.py
 先进入安装包目录。本仓库构建产物位于 `dist/u60-pro-enhanced-<版本>/`（构建后可用 `ls dist/` 查看实际目录名），使用上游 Release 时就是解压出来的同名目录。
 
 ```sh
-cd dist/u60-pro-enhanced-v0.1.8-experimental
+cd dist/u60-pro-enhanced-v0.1.9-experimental
 python3 prepare.py
 ```
 

@@ -238,7 +238,7 @@ class Test(unittest.TestCase):
   self.assertTrue(r['ok']);lines=r['report']['lines'];joined='\n'.join(lines)
   self.assertIn('u60-pro-B31-20260924-072501',joined)
   self.assertIn('未代理：IPv6',joined)
-  self.assertIn('未验证：USB/Wi-Fi 中继',joined)
+  self.assertIn('未验证：B31外接USB网卡',joined)
   self.assertIn('restore-boot',joined)
   # Reading the version must not mutate anything.
   self.assertFalse(any(m!='GET' for m,_ in API.calls))

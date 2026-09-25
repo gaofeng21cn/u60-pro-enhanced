@@ -27,34 +27,77 @@ phase() { printf '%s\n' "$1" > "$RUN/phase.$$"; mv "$RUN/phase.$$" "$RUN/phase";
 default4() { "$IP" -4 route show default 2>/dev/null; }
 cell4_ready() { default4 | grep -q ' dev rmnet_data'; }
 cell6_ready() { "$IP" -6 route show default 2>/dev/null | grep -q ' dev rmnet_data'; }
-adapter_present() { [ -e "$NET/eth0" ]; }
-supported() {
- dev=$(readlink -f "$NET/eth0/device") || return 1
- driver=$(readlink -f "$NET/eth0/device/driver") || return 1
- parent=${dev%/*}
- [ "${driver##*/}" = ax_usb_nic ] &&
- [ "$(cat "$parent/idVendor" 2>/dev/null)" = 0b95 ] &&
- [ "$(cat "$parent/idProduct" 2>/dev/null)" = 1790 ]
+# LAN admission follows the actual bound USB driver. The factory WAN callback
+# remains restricted to its qualified eth0 adapter.
+usb_discover() {
+ USB_DEVICE=; USB_INDEX=; USB_IF=; USB_DRIVER=; USB_VENDOR=; USB_PRODUCT=; USB_COUNT=0; USB_SUPPORTED=false; USB_WAN=false
+ for nic in "$NET"/*; do
+  [ -e "$nic/device" ] || continue
+  dev=$(readlink -f "$nic/device") || continue
+  parent=${dev%/*}
+  [ -f "$parent/idVendor" ] && [ -f "$parent/idProduct" ] || continue
+  name=${nic##*/}
+  case "$name" in ''|*[!a-zA-Z0-9_.-]*) continue;; esac
+  vendor=$(cat "$parent/idVendor"); product=$(cat "$parent/idProduct")
+  case "$vendor$product" in *[!0-9a-fA-F]*|'') continue;; esac
+  [ "${#vendor}" = 4 ] && [ "${#product}" = 4 ] || continue
+  driver=$(readlink -f "$nic/device/driver" 2>/dev/null || true); driver=${driver##*/}
+  case "$driver" in *[!a-zA-Z0-9_-]*) driver=unknown;; esac
+  USB_COUNT=$((USB_COUNT+1)); USB_DEVICE=$dev; USB_INDEX=$(cat "$nic/ifindex" 2>/dev/null || true); USB_IF=$name; USB_DRIVER=$driver; USB_VENDOR=$vendor; USB_PRODUCT=$product
+ done
+ # An unknown eth0 must never silently bypass admission (including old firmware).
+ if [ "$USB_COUNT" = 0 ] && [ -e "$NET/eth0" ]; then USB_COUNT=1; USB_IF=eth0; USB_DRIVER=unknown; fi
+ [ "$USB_COUNT" = 1 ] || return 0
+ case "$USB_DRIVER" in ax_usb_nic|ax88179_178a|asix|r8152|cdc_ether|cdc_ncm|aqc111) USB_SUPPORTED=true;; esac
+ if [ "$USB_IF" = eth0 ] && [ "$USB_DRIVER" = ax_usb_nic ] && [ "$USB_VENDOR:$USB_PRODUCT" = 0b95:1790 ]; then USB_WAN=true; fi
 }
-link_up() { [ "$(cat "$NET/eth0/carrier" 2>/dev/null)" = 1 ]; }
-bridge_member() { [ "$(basename "$(readlink -f "$NET/eth0/master" 2>/dev/null)")" = br-lan ]; }
+
+usb_discover
+adapter_present() { [ "$USB_COUNT" -gt 0 ]; }
+usb_current() {
+ [ -n "$USB_IF" ] && [ -n "$USB_INDEX" ] &&
+ [ "$(readlink -f "$NET/$USB_IF/device" 2>/dev/null)" = "$USB_DEVICE" ] &&
+ [ "$(cat "$NET/$USB_IF/ifindex" 2>/dev/null)" = "$USB_INDEX" ]
+}
+supported() { [ "$USB_COUNT" = 1 ] && [ "$USB_SUPPORTED" = true ] && usb_current; }
+wan_supported() { [ "$USB_WAN" = true ]; }
+link_up() { [ -n "$USB_IF" ] && [ "$(cat "$NET/$USB_IF/carrier" 2>/dev/null)" = 1 ]; }
+bridge_member() { [ -n "$USB_IF" ] && [ "$(basename "$(readlink -f "$NET/$USB_IF/master" 2>/dev/null)")" = br-lan ]; }
+lan_attach() {
+ adapter_present || return 0
+ supported || return 1
+ # Do not steal an interface from another bridge or a routed network.
+ master=$(readlink -f "$NET/$USB_IF/master" 2>/dev/null || true)
+ case "$master" in ''|*/br-lan) ;; *) return 1;; esac
+ if ! bridge_member; then
+  [ -z "$("$IP" -4 -o addr show dev "$USB_IF" scope global)" ] || return 1
+  [ -z "$("$IP" -6 -o addr show dev "$USB_IF" scope global)" ] || return 1
+  usb_current || return 1
+  "$IP" link set dev "$USB_IF" master br-lan || return 1
+ fi
+ usb_current || return 1
+ "$IP" link set dev "$USB_IF" up || return 1
+ bridge_member
+}
 ebt_rule() {
  chain=$1; shift
  "$EBT" -L "$chain" 2>/dev/null | grep -F -q -- "$*" || "$EBT" -A "$chain" "$@"
 }
 isolate_bridge() {
+ guard_if=${USB_IF:-eth0}
  "$EBT" -L U60_USB_GUARD >/dev/null 2>&1 || "$EBT" -N U60_USB_GUARD || return 1
  ebt_rule U60_USB_GUARD -j DROP || return 1
- ebt_rule INPUT -i eth0 -j U60_USB_GUARD || return 1
- ebt_rule OUTPUT -o eth0 -j U60_USB_GUARD || return 1
- ebt_rule FORWARD -i eth0 -j U60_USB_GUARD || return 1
- ebt_rule FORWARD -o eth0 -j U60_USB_GUARD
+ ebt_rule INPUT -i "$guard_if" -j U60_USB_GUARD || return 1
+ ebt_rule OUTPUT -o "$guard_if" -j U60_USB_GUARD || return 1
+ ebt_rule FORWARD -i "$guard_if" -j U60_USB_GUARD || return 1
+ ebt_rule FORWARD -o "$guard_if" -j U60_USB_GUARD
 }
 release_bridge() {
- while "$EBT" -D INPUT -i eth0 -j U60_USB_GUARD >/dev/null 2>&1; do :; done
- while "$EBT" -D OUTPUT -o eth0 -j U60_USB_GUARD >/dev/null 2>&1; do :; done
- while "$EBT" -D FORWARD -i eth0 -j U60_USB_GUARD >/dev/null 2>&1; do :; done
- while "$EBT" -D FORWARD -o eth0 -j U60_USB_GUARD >/dev/null 2>&1; do :; done
+ guard_if=${USB_IF:-eth0}
+ while "$EBT" -D INPUT -i "$guard_if" -j U60_USB_GUARD >/dev/null 2>&1; do :; done
+ while "$EBT" -D OUTPUT -o "$guard_if" -j U60_USB_GUARD >/dev/null 2>&1; do :; done
+ while "$EBT" -D FORWARD -i "$guard_if" -j U60_USB_GUARD >/dev/null 2>&1; do :; done
+ while "$EBT" -D FORWARD -o "$guard_if" -j U60_USB_GUARD >/dev/null 2>&1; do :; done
  "$EBT" -F U60_USB_GUARD >/dev/null 2>&1 || true
  "$EBT" -X U60_USB_GUARD >/dev/null 2>&1 || true
 }
@@ -127,17 +170,17 @@ cellular_config() {
 now() { cut -d . -f 1 "$BASE/proc/uptime"; }
 write_run() { printf '%s\n' "$2" > "$RUN/$1.$$"; mv "$RUN/$1.$$" "$RUN/$1"; }
 wan_ready() {
- supported && link_up && ! bridge_member &&
+ wan_supported && link_up && ! bridge_member &&
  [ "$(get zwrt_router.network.opms_wan_mode)" = AUTO ] &&
  [ "$(get network.zte_wan.proto)" = dhcp ] &&
- default4 | grep -q ' dev eth0' || return 1
- "$IP" -4 -o addr show dev eth0 | grep -q ' inet '
+ default4 | grep -q " dev $USB_IF" || return 1
+ "$IP" -4 -o addr show dev "$USB_IF" | grep -q ' inet '
 }
 clear_eth_addresses() {
  adapter_present || return 0
  supported || return 1
- "$IP" -4 addr flush dev eth0 scope global || return 1
- "$IP" -6 addr flush dev eth0 scope global || return 1
+ "$IP" -4 addr flush dev "$USB_IF" scope global || return 1
+ "$IP" -6 addr flush dev "$USB_IF" scope global || return 1
 }
 set_mode() {
  [ "$(get zwrt_router.network.opms_wan_mode)" = "$1" ] && return 0
@@ -174,7 +217,8 @@ services_after_change() {
 # Pure-shell fast path for an empty adapter port. Never defers attachment,
 # role changes, route loss or the post-switch settling window.
 idle_ready() {
- [ ! -e "$NET/eth0" ] && [ ! -e "$RUN/suspended" ] || return 1
+ usb_discover
+ [ "$USB_COUNT" = 0 ] && [ ! -e "$RUN/suspended" ] || return 1
  idle_req=''; IFS= read -r idle_req < "$ROOT/usb-role" || [ -n "$idle_req" ] || return 1
  [ "$idle_req" = "${1:-}" ] || return 1
  idle_phase=''; IFS= read -r idle_phase < "$RUN/phase" || [ -n "$idle_phase" ] || return 1
@@ -208,6 +252,8 @@ reconcile() {
  # a missing-route fault. The observer is native and has no network side effects.
  stock_sleeping && return 0
  req=$(requested)
+ usb_discover
+ if [ "$req" = AUTO ] && adapter_present && ! wan_supported; then phase UNSUPPORTED_WAN; return 1; fi
  if adapter_present && ! supported; then phase ERROR; return 1; fi
  if [ "$req" = LAN ]; then
   # A live upstream may never be bridged by a delayed/stale request.
@@ -215,13 +261,14 @@ reconcile() {
   if [ "$(get zwrt_router.network.opms_wan_mode)" != PPP ]; then clear_eth_addresses || return 1; fi
   set_mode PPP || { phase ERROR; return 1; }
   cellular_config || { phase RESTORING; return 1; }
+  lan_attach || { phase ERROR; return 1; }
   release_bridge
   phase LAN
  else
   isolate_bridge || { phase ERROR; return 1; }
   set_mode AUTO || { phase ERROR; return 1; }
   # Reassert bridge separation if the vendor hotplug path adds eth0 back.
-  if bridge_member; then "$IP" link set dev eth0 nomaster || return 1; fi
+  if bridge_member; then "$IP" link set dev "$USB_IF" nomaster || return 1; fi
   if ! adapter_present || ! link_up; then
    clear_eth_addresses || return 1
    rm -f "$RUN/attachment" "$RUN/probe_at" "$RUN/accepted"
@@ -232,7 +279,7 @@ reconcile() {
   else
    # Retain the modem until a validated upstream lease is actually adopted.
    if [ "$(get network.zte_wan.proto)" != dhcp ]; then cellular_config || true; fi
-   ident=$(cat "$NET/eth0/ifindex")
+   ident=$(cat "$NET/$USB_IF/ifindex")
    attachment=$(cat "$RUN/attachment" 2>/dev/null || true)
    if [ "$attachment" != "$ident" ]; then
     write_run attachment "$ident"; write_run probe_at "$(now)"; phase DETECTING; return 0
@@ -244,9 +291,9 @@ reconcile() {
    if [ "$accepted" -gt 0 ] && [ "$((stamp-accepted))" -lt 20 ]; then phase DETECTING; return 0; fi
    if [ "$accepted" -gt 0 ]; then cellular_config || true; rm -f "$RUN/accepted"; fi
    phase DETECTING
-   "$IP" link set dev eth0 up || return 1
+   "$IP" link set dev "$USB_IF" up || return 1
    export U60_USB_ATTACHMENT="$ident"
-   "$UDHCPC" -f -q -n -i eth0 -t 3 -T 2 -s "$DHCP_EVENT" -p "$RUN/dhcp.pid" >/dev/null 2>&1 || true
+   "$UDHCPC" -f -q -n -i "$USB_IF" -t 3 -T 2 -s "$DHCP_EVENT" -p "$RUN/dhcp.pid" >/dev/null 2>&1 || true
    write_run probe_at "$(now)"
    if [ ! -e "$RUN/accepted" ]; then
     failure=$(cat "$RUN/phase")
@@ -262,6 +309,7 @@ reconcile() {
 set_request() {
  if [ "$1" = AUTO ] && [ -f "$ROOT/relay-private/enabled" ];then echo '{"ok":false,"message":"请先断开Wi-Fi中继，再切换USB AUTO"}';return 2;fi
  case "${1:-}" in AUTO|LAN) ;; *) echo '{"ok":false,"message":"请选择 AUTO 或 LAN"}'; return 2;; esac
+ if [ "$1" = AUTO ] && adapter_present && ! wan_supported; then echo '{"ok":false,"message":"此网卡仅开放 LAN；AUTO 尚未完成适配"}'; return 2; fi
  if adapter_present && ! supported; then echo '{"ok":false,"message":"当前网卡尚未适配"}'; return 2; fi
  if [ "$1" = LAN ] && [ "$(get zwrt_router.network.opms_wan_mode)" != PPP ] && link_up; then
   echo '{"ok":false,"message":"请先拔网线，再切换 LAN 接电脑"}'; return 2
@@ -298,22 +346,24 @@ status() {
  if adapter_present; then
   adapter=true
   if link_up; then link=true; fi
-  if ! supported; then state=UNSUPPORTED; badge=ERROR; message='网卡尚未适配';
+  if [ "$USB_COUNT" -gt 1 ]; then state=UNSUPPORTED; badge=ERROR; message='请只接一张 USB 网卡';
+  elif ! supported; then state=UNSUPPORTED; badge=ERROR; message='网卡驱动尚未适配';
+  elif [ "$req" = AUTO ] && ! wan_supported; then state=UNSUPPORTED_WAN; badge=ERROR; message='此网卡仅开放 LAN；请拔网线后切换 LAN';
   elif [ "$link" = false ]; then state=WAIT_CABLE; badge=WAIT; message='网卡已接入，等待网线';
   elif [ "$req" = LAN ] && bridge_member && [ "$(get zwrt_router.network.opms_wan_mode)" = PPP ]; then
    state=LAN; badge=LAN; message='LAN：向电脑或其他设备供网'
   elif [ "$req" = AUTO ] && wan_ready; then
    state=WAN; badge=WAN; message='WAN：有线上网'
-   ipv4=$("$IP" -4 -o addr show dev eth0 | awk '$3=="inet" && $4 !~ /^169[.]254[.]/ {split($4,a,"/");print a[1];exit}')
-   gateway=$(default4 | awk '/ dev eth0/{print $3;exit}')
+   ipv4=$("$IP" -4 -o addr show dev "$USB_IF" | awk '$3=="inet" && $4 !~ /^169[.]254[.]/ {split($4,a,"/");print a[1];exit}')
+   gateway=$(default4 | awk -v dev="$USB_IF" '$0 ~ " dev " dev {print $3;exit}')
   else state=DETECTING; badge=WAIT; message='正在识别上级网络'; fi
  fi
  service=false;"$SERVICE" running >/dev/null 2>&1 && service=true
  if [ -f "$ROOT/usb-managed" ] && [ "$service" = false ];then current=SERVICE_DOWN;fi
- case "$current" in SERVICE_DOWN) state=SERVICE_DOWN;badge=ERROR;message="协调服务未运行，已保存选择尚未应用";; RESTORING) state=RESTORING;badge=WAIT;message='正在恢复蜂窝网络';; SWITCHING) state=SWITCHING;badge=WAIT;message='正在切换网口角色';; UNPLUG) state=UNPLUG;badge=ERROR;message='请先拔网线，再切换 LAN';; NO_UPSTREAM) state=NO_UPSTREAM;badge=WAIT;message='未获取上级地址，继续使用蜂窝';; CONFLICT) state=CONFLICT;badge=ERROR;message='上级与 U60 内网地址冲突';; ERROR) state=ERROR;badge=ERROR;message='切换未完成，请查看网线或改用 LAN';; esac
+ case "$current" in UNSUPPORTED_WAN) state=UNSUPPORTED_WAN;badge=ERROR;message="此网卡仅开放 LAN；AUTO 尚未适配";; SERVICE_DOWN) state=SERVICE_DOWN;badge=ERROR;message="协调服务未运行，已保存选择尚未应用";; RESTORING) state=RESTORING;badge=WAIT;message='正在恢复蜂窝网络';; SWITCHING) state=SWITCHING;badge=WAIT;message='正在切换网口角色';; UNPLUG) state=UNPLUG;badge=ERROR;message='请先拔网线，再切换 LAN';; NO_UPSTREAM) state=NO_UPSTREAM;badge=WAIT;message='未获取上级地址，继续使用蜂窝';; CONFLICT) state=CONFLICT;badge=ERROR;message='上级与 U60 内网地址冲突';; ERROR) state=ERROR;badge=ERROR;message='切换未完成，请查看网线或改用 LAN';; esac
  if [ "$adapter" = false ] && [ "$req" = AUTO ] && [ "$state" != SERVICE_DOWN ]; then message='未接网卡 · 使用蜂窝'; fi
  case "$ipv4$gateway" in *[!0-9.]*) ipv4='';gateway='';state=ERROR;badge=ERROR;; esac
- printf '{"ok":true,"requested":"%s","service_running":%s,"state":"%s","adapter":%s,"link":%s,"ipv4":"%s","gateway":"%s","badge":"%s","message":"%s"}\n' "$req" "$service" "$state" "$adapter" "$link" "$ipv4" "$gateway" "$badge" "$message"
+ printf '{"ok":true,"requested":"%s","service_running":%s,"state":"%s","adapter":%s,"link":%s,"interface":"%s","driver":"%s","vendor":"%s","product":"%s","lan_supported":%s,"wan_supported":%s,"ipv4":"%s","gateway":"%s","badge":"%s","message":"%s"}\n' "$req" "$service" "$state" "$adapter" "$link" "$USB_IF" "$USB_DRIVER" "$USB_VENDOR" "$USB_PRODUCT" "$USB_SUPPORTED" "$USB_WAN" "$ipv4" "$gateway" "$badge" "$message"
 }
 case "${1:-status}" in
  status) status;;

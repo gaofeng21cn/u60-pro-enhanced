@@ -38,7 +38,7 @@ assert.deepStrictEqual(m.filterSections(sections,'more')[0].items.map(x=>x.id),[
 assert.deepStrictEqual(m.filterSections([{id:'wifi',items:[{id:'power'}]}],'network'),[]);
 assert.deepStrictEqual(m.filterSections(sections,'unknown'),[]);
 assert.strictEqual(JSON.stringify(sections),before);
-const usb=m.filterSections([{id:'usb',items:[{id:'macnet.mode',type:'info'},{id:'macnet.link',type:'info'},{id:'macnet.help',type:'info'}]}],'network')[0];
-assert.strictEqual(usb.id,'usb-cable');assert.strictEqual(usb.items.length,3);assert(usb.items.every(x=>!m.interactive(x)));
+const usb=m.filterSections([{id:'usb',items:[{id:'macnet.mode',type:'info'},{id:'macnet.link',type:'info'},{id:'macnet.help',type:'info'},{id:'macnet.trial',type:'choice',action:'usb.macnet.trial'}]}],'network')[0];
+assert.strictEqual(usb.id,'usb-cable');assert.strictEqual(usb.items.length,4);assert(usb.items.filter(x=>x.id!=='macnet.trial').every(x=>!m.interactive(x)));assert(m.interactive(usb.items.find(x=>x.id==='macnet.trial')));
 const power=m.filterSections(sections,'device');assert.strictEqual(power[1].id,'power-status');assert.strictEqual(power[1].items[0].id,'charge.current');
 console.log('web model: passed; stock controls excluded, additions preserved, snapshot unchanged');
