@@ -146,6 +146,15 @@ class ModeTests(unittest.TestCase):
   self.config['refuse_stop']='80001';r=self.run_mode('tun');self.assertFalse(r['ok']);self.assertEqual(self.starts(),[]);self.assertEqual(self.kills(),['80001'])
  def test_start_uses_saved_tun(self):
   shutil.rmtree(self.root/'proc/80001');(self.root/'data/u60-panel/tailscale-mode').write_text('tun\n');r=self.run_mode('start');self.assertTrue(r['ok']);self.assertEqual(r['mode'],'tun')
+ def test_comm_is_only_candidate_filter(self):
+  tool=self.root/'bin/pidof';tool.write_text('#!/bin/sh\nprintf \"80001 80002\\n\"\n');tool.chmod(0o700)
+  p=self.root/'proc/80001';(p/'comm').write_text('tailscaled\n')
+  other=self.root/'proc/80002';other.mkdir();(other/'comm').write_text('unrelated\n');(other/'exe').symlink_to(self.root/'data/tailscale/bin/tailscaled');(other/'cmdline').write_bytes((p/'cmdline').read_bytes())
+  self.assertTrue(self.run_mode('status')['ok'])
+  (other/'comm').write_text('tailscaled\n')
+  self.assertFalse(self.run_mode('status')['ok'],'duplicate exact owners must still be rejected')
+  (other/'exe').unlink();(other/'exe').symlink_to('/unrelated/tailscaled')
+  self.assertTrue(self.run_mode('status')['ok'],'name alone must not establish ownership')
  def test_status_does_not_write(self):
   r=self.run_mode('status');self.assertTrue(r['ok']);self.assertEqual(r['mode'],'userspace');self.assertEqual(self.starts(),[]);self.assertEqual(self.kills(),[]);self.assertFalse((self.root/'data/u60-panel/tailscale-mode').exists());self.assertFalse((self.root/'tmp/u60-tailscale-mode.lock').exists())
  def test_missing_tun_is_not_migrated(self):

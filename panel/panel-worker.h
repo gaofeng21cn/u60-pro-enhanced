@@ -84,7 +84,7 @@ static int worker_poll(struct app *a){
    cJSON_Delete(r);worker_clear(fail);changed=1;
   }
  }
- if(!a->blanked&&!pw.pid&&now_ms()>=next_snapshot){cJSON*r=cJSON_CreateObject();cJSON_AddStringToObject(r,"action","state");if(!worker_start(r,0))snprintf(a->shell.status,sizeof(a->shell.status),"控制程序未就绪");cJSON_Delete(r);next_snapshot=now_ms()+(a->blanked?30000:10000);}
+ if(!a->blanked&&!a->shell.modal&&!a->shell.editor&&!a->shell.power_open&&!pw.pid&&now_ms()>=next_snapshot){cJSON*r=cJSON_CreateObject();cJSON_AddStringToObject(r,"action","state");if(!worker_start(r,0))snprintf(a->shell.status,sizeof(a->shell.status),"控制程序未就绪");cJSON_Delete(r);next_snapshot=now_ms()+(a->blanked?30000:10000);}
  return changed;
 }
 /* Fast local telemetry runs separately from slow ubus/API calls. */

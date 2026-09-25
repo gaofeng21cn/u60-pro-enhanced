@@ -16,7 +16,7 @@ class IdleWorker(unittest.TestCase):
 #include <sys/wait.h>
 #include "cJSON.h"
 #define WORKER_CAP 4096
-struct app {int blanked; struct {int busy;long status_until;char status[256];cJSON*snapshot;}shell;};
+struct app {int blanked; struct {int busy,modal,editor,power_open;long status_until;char status[256];cJSON*snapshot;}shell;};
 struct {int pid,fd,action;long started,timeout;char*buf;size_t used;}pw;
 struct {int pid;}screen_notice;
 static long next_snapshot,clock_ms=100000;
@@ -41,7 +41,11 @@ int main(void){
  int fds[2];assert(!pipe(fds));const char*reply="{\"message\":\"done\"}";assert(write(fds[1],reply,strlen(reply))==(ssize_t)strlen(reply));close(fds[1]);
  pw.pid=123;pw.fd=fds[0];pw.action=1;pw.started=clock_ms;pw.timeout=45000;pw.buf=malloc(WORKER_CAP+1);a.shell.busy=1;
  assert(worker_poll(&a)==1);assert(!a.shell.busy&&!pw.pid);assert(!strcmp(a.shell.status,"done"));assert(starts==1);
- a.blanked=0;next_snapshot=0;worker_poll(&a);assert(starts==2);
+ a.blanked=0;next_snapshot=0;
+ a.shell.modal=1;worker_poll(&a);assert(starts==1);
+ a.shell.modal=0;a.shell.editor=1;worker_poll(&a);assert(starts==1);
+ a.shell.editor=0;a.shell.power_open=1;worker_poll(&a);assert(starts==1);
+ a.shell.power_open=0;worker_poll(&a);assert(starts==2);
 
  /* Slow backend state never owns fast local route/traffic telemetry. */
  a.shell.snapshot=cJSON_Parse("{\"data\":{\"physical_iface\":\"u60sta\",\"download_bps\":12345,\"cpu_percent\":12.5,\"wifi_status\":\"old\"},\"sections\":[]}");

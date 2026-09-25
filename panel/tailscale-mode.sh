@@ -29,12 +29,17 @@ fi
 saved_mode() { SAVED=userspace; if [ -f "$MODEFILE" ]; then IFS= read -r mode < "$MODEFILE" || :; [ "${mode:-}" != tun ] || SAVED=tun; fi; }
 owned() {
  case "${1:-}" in ''|*[!0-9]*|0|1) return 1;; esac
+ # proc comm is a cheap candidate filter, never proof of ownership. Avoid a
+ # readlink subprocess for every kernel/user task on every UI refresh.
+ if [ -r "$PROC/$1/comm" ];then
+  IFS= read -r candidate_name < "$PROC/$1/comm" || candidate_name=
+  [ "$candidate_name" = tailscaled ] || return 1
+ fi
  link=$(readlink "$PROC/$1/exe" 2>/dev/null)
  if [ "$link" != "$BIN" ];then
   [ "$link" = "$BIN (deleted)" ] || return 1
-  running_sha=$(sha256sum "$PROC/$1/exe" 2>/dev/null | cut -d ' ' -f 1)
-  installed_sha=$(sha256sum "$BIN" 2>/dev/null | cut -d ' ' -f 1)
-  [ -n "$running_sha" ] && [ "$running_sha" = "$installed_sha" ] || return 1
+  # Exact-byte comparison avoids hashing both large binaries repeatedly.
+  cmp -s "$PROC/$1/exe" "$BIN" || return 1
  fi
  [ -r "$PROC/$1/cmdline" ] || return 1
  # Binary identity plus exact state/socket scope, not a process-name match.
@@ -44,11 +49,18 @@ owned() {
 find_owner() {
  OWNER=; MULTIPLE=0
  if [ -r "$PIDFILE" ]; then IFS= read -r p < "$PIDFILE" || :; if owned "${p:-}"; then OWNER=$p; fi; fi
- for path in "$PROC"/[0-9]*; do [ -d "$path" ] || continue; p=${path##*/}; [ "$p" != "$OWNER" ] || continue; if owned "$p"; then if [ -n "$OWNER" ]; then MULTIPLE=1; else OWNER=$p; fi; fi; done
+ # pidof narrows live candidates in one process. Exact executable and scope
+ # checks below still decide ownership and reject duplicate matching daemons.
+ if [ -x "$ROOT/bin/pidof" ];then
+  candidates=$("$ROOT/bin/pidof" tailscaled 2>/dev/null || :)
+  paths=;for candidate_pid in $candidates;do paths="$paths $PROC/$candidate_pid";done
+ else paths=$(printf '%s\n' "$PROC"/[0-9]*);fi
+ for path in $paths; do [ -d "$path" ] || continue; p=${path##*/}; [ "$p" != "$OWNER" ] || continue; if owned "$p"; then if [ -n "$OWNER" ]; then MULTIPLE=1; else OWNER=$p; fi; fi; done
 }
 process_mode() {
  ACTIVE=unknown
- if [ -n "$OWNER" ] && owned "$OWNER"; then
+ # find_owner has just verified this process; writes recheck ownership again.
+ if [ -n "$OWNER" ]; then
   if tr '\000' '\n' < "$PROC/$OWNER/cmdline" | grep -Fx -- '--tun=tailscale0' >/dev/null 2>&1; then ACTIVE=tun
   elif tr '\000' '\n' < "$PROC/$OWNER/cmdline" | grep -Fx -- '--tun=userspace-networking' >/dev/null 2>&1; then ACTIVE=userspace; fi
  fi

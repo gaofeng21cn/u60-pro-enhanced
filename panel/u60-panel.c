@@ -2142,7 +2142,12 @@ static int ui_main(void) {
   if(g_wake){g_wake=0;last_input=now_ms();if(app.blanked)screen_unblank(&app);else screen_blank(&app);need=1;}
   if(g_power){g_power=0;last_input=now_ms();screen_unblank(&app);app.shell.power_open=1;logline("power menu opened");need=1;}
   if(was_blanked&&!app.blanked)next_snapshot=0;
-  struct pollfd p={touch.fd,POLLIN,0};poll(&p,1,app.blanked&&!screen_notice.pid?1000:30);
+  /* Input and helper completion wake the loop immediately. An idle screen
+   * only needs the next telemetry tick, rather than 33 wakeups per second. */
+  long sample_wait=1000-(now_ms()-last_sample);if(sample_wait<0)sample_wait=0;
+  int wait_ms=touch.down||screen_notice.pid?30:app.blanked?1000:(int)sample_wait;
+  struct pollfd events[2]={{touch.fd,POLLIN,0},{pw.pid&&!touch.down?pw.fd:-1,POLLIN,0}};
+  poll(events,2,wait_ms);struct pollfd p={touch.fd,POLLIN,0};
   /* Consume queued motion frames before drawing, avoiding a growing backlog
    * when touch sampling is faster than the LCD commit rate. Stop at release
    * so a subsequent tap sees fresh hit targets. */
