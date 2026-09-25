@@ -12,11 +12,14 @@ class Preparation(unittest.TestCase):
   for name,data in examples.items():
    patched=m.patch_web(name,data,m.sha(data));self.assertNotEqual(patched,data)
    with self.assertRaises(ValueError):m.patch_web(name,patched,m.sha(data))
-  self.assertIn(b'requireLogin:!0',m.patch_web('js/config/ufi/U60Pro/menu.js',examples['js/config/ufi/U60Pro/menu.js'],m.sha(examples['js/config/ufi/U60Pro/menu.js'])))
+  menu=m.patch_web('js/config/ufi/U60Pro/menu.js',examples['js/config/ufi/U60Pro/menu.js'],m.sha(examples['js/config/ufi/U60Pro/menu.js']))
+  self.assertIn(b'requireLogin:!0',menu)
+  self.assertEqual(menu.count(b'path:"auth/u60-enhanced"'),6)
  def test_menu_added_after_nested_stock_entries(self):
   data=b'<ul class="main-navigation-list"><li>stock<ul><li>nested</li></ul></li></ul><script data-main="js/main">'
   result=m.patch_web('index.html',data,m.sha(data))
-  self.assertIn(b'nested</li></ul></li><li class="navigation-drawer -u60-enhanced">',result)
+  self.assertIn(b'nested</li></ul></li><li class="navigation-drawer -u60-enhanced"><div class="label">',result)
+  self.assertIn(b'#u60_enhanced_clash',result)
   broken=b'<ul class="main-navigation-list"><script data-main="js/main">'
   with self.assertRaises(ValueError):m.patch_web('index.html',broken,m.sha(broken))
  def test_menu_icon_is_injected_when_factory_head_is_present(self):

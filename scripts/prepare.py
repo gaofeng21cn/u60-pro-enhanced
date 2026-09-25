@@ -3,9 +3,9 @@
 import argparse,datetime,gzip,hashlib,io,json,pathlib,re,shutil,subprocess,tarfile,urllib.request
 ROOT=pathlib.Path(__file__).resolve().parent
 FIRMWARE={b'BD_FLYMODEMMU5250V1.0.0B28':'B28',b'BD_CNMU5250V1.0.0B31':'B31'}
-WEB={'index.html':('<ul class="main-navigation-list">','<ul class="main-navigation-list">\n<li class="navigation-drawer -u60-enhanced"><a href="#u60_enhanced" class="parent-link link">增强功能</a></li>'),
- 'js/main.js':('require.config({paths:','require.config({urlArgs:"u60=20260924-clash-ux-3",paths:'),
- 'js/config/ufi/U60Pro/menu.js':('return[','return[{hash:"#u60_enhanced",path:"auth/u60-enhanced",requireLogin:!0,checkSIMStatus:!1},')}
+WEB={'index.html':('<ul class="main-navigation-list">','<ul class="main-navigation-list">\n<li class="navigation-drawer -u60-enhanced"><div class="label"><a href="#" class="parent-link">增强功能</a></div><ul class="sub-navigation sub-hide"><li class="nav"><a href="#u60_enhanced" class="children-link">概览</a></li><li class="nav"><a href="#u60_enhanced_network" class="children-link">网络</a></li><li class="nav"><a href="#u60_enhanced_clash" class="children-link">Clash</a></li><li class="nav"><a href="#u60_enhanced_tailscale" class="children-link">Tailscale</a></li><li class="nav"><a href="#u60_enhanced_device" class="children-link">电源</a></li><li class="nav"><a href="#u60_enhanced_more" class="children-link">工具</a></li></ul></li>'),
+ 'js/main.js':('require.config({paths:','require.config({urlArgs:"u60=20260925-clash-ux-4",paths:'),
+ 'js/config/ufi/U60Pro/menu.js':('return[','return[{hash:"#u60_enhanced",path:"auth/u60-enhanced",requireLogin:!0,checkSIMStatus:!1},{hash:"#u60_enhanced_network",path:"auth/u60-enhanced",requireLogin:!0,checkSIMStatus:!1},{hash:"#u60_enhanced_clash",path:"auth/u60-enhanced",requireLogin:!0,checkSIMStatus:!1},{hash:"#u60_enhanced_tailscale",path:"auth/u60-enhanced",requireLogin:!0,checkSIMStatus:!1},{hash:"#u60_enhanced_device",path:"auth/u60-enhanced",requireLogin:!0,checkSIMStatus:!1},{hash:"#u60_enhanced_more",path:"auth/u60-enhanced",requireLogin:!0,checkSIMStatus:!1},')}
 def sha(data):return hashlib.sha256(data).hexdigest()
 def patch_web(name,data,expected):
  if sha(data)!=expected:raise ValueError('Factory web fingerprint mismatch: '+name)
@@ -18,9 +18,10 @@ def patch_web(name,data,expected):
    depth += -1 if match.group().startswith('</') else 1
    if depth==0:end=start+match.start();break
   if end is None:raise ValueError('Unclosed stock navigation')
-  text=text[:end]+'<li class="navigation-drawer -u60-enhanced"><a href="#u60_enhanced" class="parent-link link">增强功能</a></li>'+text[end:]
+  menu='<li class="navigation-drawer -u60-enhanced"><div class="label"><a href="#" class="parent-link">增强功能</a></div><ul class="sub-navigation sub-hide"><li class="nav"><a href="#u60_enhanced" class="children-link">概览</a></li><li class="nav"><a href="#u60_enhanced_network" class="children-link">网络</a></li><li class="nav"><a href="#u60_enhanced_clash" class="children-link">Clash</a></li><li class="nav"><a href="#u60_enhanced_tailscale" class="children-link">Tailscale</a></li><li class="nav"><a href="#u60_enhanced_device" class="children-link">电源</a></li><li class="nav"><a href="#u60_enhanced_more" class="children-link">工具</a></li></ul></li>'
+  text=text[:end]+menu+text[end:]
   if text.count('data-main="js/main"')!=1:raise ValueError('Unexpected main script')
-  text=text.replace('data-main="js/main"','data-main="js/main.js?u60=20260924-clash-ux-3"')
+  text=text.replace('data-main="js/main"','data-main="js/main.js?u60=20260925-clash-ux-4"')
   if text.count('</head>')==1:
    icon_css='''<style id="u60-enhanced-navigation-style">\n.navigation-drawer.-u60-enhanced .parent-link.link{display:flex;align-items:center;gap:10px}\n.navigation-drawer.-u60-enhanced .parent-link.link::before{content:"";display:inline-block;flex:0 0 24px;width:24px;height:24px;background:center/22px 22px no-repeat url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%236e7882%27 stroke-width=%271.6%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Crect x=%273%27 y=%274%27 width=%2718%27 height=%2716%27 rx=%272%27/%3E%3Cpath d=%27M3 9h18M8 4v5M16 4v5M7 13h3M14 13h3M7 17h3M14 17h3%27/%3E%3C/svg%3E")}\n.navigation-drawer.-u60-enhanced:hover .parent-link.link::before,.navigation-drawer.-u60-enhanced.active .parent-link.link::before{filter:brightness(.82)}\n</style>\n'''
    text=text.replace('</head>',icon_css+'</head>',1)
