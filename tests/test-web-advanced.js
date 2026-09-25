@@ -23,7 +23,7 @@ function makeEl(tag, cls) {
   e.children = function () { return e; };
   e.each = function (fn) { e.kids.forEach((c, i) => fn.call(c, i, c)); return e; };
   e.find = function () { return makeEl('matches'); };
-  e.prop = function () { return e; };
+  e.prop = function (key,value) { e[key]=value; return e; };
   e.filter = function () { return e; };
   return e;
 }
@@ -77,23 +77,26 @@ function subtabButton(label) {
 const view = texts(advanced.render('clash', base, api)).join('\n');
 for (const want of [
   'Mihomo 核心', '运行中',
-  '当前结论', '规则代理已接管 IPv4 TCP 与 DNS',
+  '规则代理已接管 IPv4 TCP 与 DNS',
   '转发规则', 'TCP 已生效', 'DNS 已生效',
-  '分流模式', '规则分流',
+  '规则分流',
   '默认代理路径', 'MATCH → 选择节点 → 订阅 · 示例 → 示例节点 A01',
   'UDP 443 被拒绝',
-  '版本与验证范围', 'u60-pro-B31-20260924-072501',
-  '未验证：USB/Wi-Fi 中继',
 ]) {
   assert(view.includes(want), `missing ${want} in\n${view}`);
 }
-assert(view.includes('全部节点（按订阅顺序）'), `node list should be the default subtab in\n${view}`);
+assert(view.indexOf('当前节点\n') < view.indexOf('其他节点'), 'current node precedes the rest of the list');
 subtabButton('订阅').handlers.click();
 const subs = texts(advanced.render('clash', base, api)).join('\n');
 for (const want of ['30 个节点', 'provider.invalid', '到期', '用量']) {
   assert(subs.includes(want), `missing ${want} in\n${subs}`);
 }
 
+subtabButton('连接与诊断').handlers.click();
+const diagnosticsView=texts(advanced.render('clash',base,api)).join('\n');
+for(const want of ['版本与验证范围','u60-pro-B31-20260924-072501','未验证：USB/Wi-Fi 中继'])assert(diagnosticsView.includes(want));
+assert(diagnosticsView.includes('当前没有连接记录'));
+assert.strictEqual(findButton(advanced.render('clash',base,api),'断开全部连接').disabled,true);
 const diagnose = findButton(advanced.render('clash', base, api), '代理覆盖自检');
 assert(diagnose, 'diagnose button missing');
 diagnose.handlers.click();
@@ -114,7 +117,7 @@ const stale = texts(advanced.render('clash', Object.assign({}, base, {
 }), api)).join('\n');
 assert(stale.includes('已超过两个更新周期'), stale);
 
-subtabButton('状态与节点').handlers.click();
+subtabButton('节点').handlers.click();
 const withPrefs = Object.assign({}, base, {
   prefs: { favorites: ['示例节点 A01'], recents: ['示例节点 B02', '示例节点 A01'], delays: { '示例节点 A01': { ms: 82, at: 1 } } },
 });
@@ -142,6 +145,21 @@ assert.strictEqual(advanced.intervalFor('clash'), 20000, 'non-connections views 
 subtabButton('连接与诊断').handlers.click();
 advanced.render('clash', base, api);
 assert.strictEqual(advanced.intervalFor('clash'), 5000, 'connections view polls faster');
-subtabButton('状态与节点').handlers.click();
+subtabButton('节点').handlers.click();
 
+// Mode actions retain confirmation; selected mode cannot be submitted again.
+const modes=advanced.render('clash',base,api);
+assert.strictEqual(findButton(modes,'规则分流 · 当前').disabled,true);
+findButton(modes,'全局代理').handlers.click();
+const mode=opened.pop();assert.strictEqual(mode.action,'web.clash.mode');assert.strictEqual(mode.confirm,true);assert.deepStrictEqual(mode.args,{mode:'global'});
+function allNodes(node){return [node,...(node.kids||[]).flatMap(allNodes)];}
+const many=Object.assign({},base,{groups:[{name:'Many',type:'Selector',selected:'Node 00',nodes:Array.from({length:40},(_,i)=>'Node '+String(i).padStart(2,'0'))}],active_group:'Many',active_node:'Node 00',prefs:{favorites:['Node 02'],recents:['Node 03']}});
+const manyView=advanced.render('clash',many,api);
+const rows=()=>allNodes(manyView).filter(n=>n.cls.split(' ').includes('u60-node-row'));
+assert.strictEqual(rows().length,15,'current, favorite, recent and first twelve other nodes');
+findButton(manyView,'再显示 12 个节点').handlers.click();assert.strictEqual(rows().length,27);
+assert.strictEqual(allNodes(advanced.render('clash',many,api)).filter(n=>n.cls.split(' ').includes('u60-node-row')).length,27,'background render retains expanded node count');
+const search=allNodes(manyView).find(n=>n.attrs['aria-label']==='搜索节点');search.handlers.input.call({value:'Node 39'});assert.strictEqual(rows().length,1);assert(texts(rows()[0]).includes('Node 39'));
+const empty=advanced.render('clash',Object.assign({},base,{providers:[]}),api);findButton(empty,'添加订阅').handlers.click();assert(findButton(empty,'＋ 新增订阅'),'empty-state action reaches the subscription form');
+subtabButton('节点').handlers.click();
 console.log('web advanced: passed; verdicts, default node view, favorites/recents, auto-select, refresh cadence');

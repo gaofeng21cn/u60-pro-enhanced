@@ -28,10 +28,10 @@ const sections=[
 ];
 const before=JSON.stringify(sections);
 const network=m.filterSections(sections,'network');
-assert.deepStrictEqual(network.map(x=>x.id),['wifi','usb']);
+assert.deepStrictEqual(network.map(x=>x.id),['wifi','usb-adapter']);
 assert.deepStrictEqual(network[0].items.map(x=>x.id),['relay','relay-scan']);
 assert.strictEqual(network[0].items[0],sections[0].items[1]); // Control payload is unchanged.
-assert.deepStrictEqual(m.filterSections(sections,'device')[0].items.map(x=>x.id),['charge.manual','charge.policy','power.standby','charge.current']);
+assert.deepStrictEqual(m.filterSections(sections,'device')[0].items.map(x=>x.id),['charge.manual','charge.policy','power.standby']);
 assert.deepStrictEqual(m.filterSections(sections,'clash')[0].items.map(x=>x.id),['service','rules']);
 assert.deepStrictEqual(m.filterSections(sections,'tailscale')[0].items.map(x=>x.id),['connected']);
 assert.deepStrictEqual(m.filterSections(sections,'more')[0].items.map(x=>x.id),['signal.serving']);
@@ -39,5 +39,6 @@ assert.deepStrictEqual(m.filterSections([{id:'wifi',items:[{id:'power'}]}],'netw
 assert.deepStrictEqual(m.filterSections(sections,'unknown'),[]);
 assert.strictEqual(JSON.stringify(sections),before);
 const usb=m.filterSections([{id:'usb',items:[{id:'macnet.mode',type:'info'},{id:'macnet.link',type:'info'},{id:'macnet.help',type:'info'}]}],'network')[0];
-assert.strictEqual(usb.items.length,3);assert(usb.items.every(x=>!m.interactive(x)));
+assert.strictEqual(usb.id,'usb-cable');assert.strictEqual(usb.items.length,3);assert(usb.items.every(x=>!m.interactive(x)));
+const power=m.filterSections(sections,'device');assert.strictEqual(power[1].id,'power-status');assert.strictEqual(power[1].items[0].id,'charge.current');
 console.log('web model: passed; stock controls excluded, additions preserved, snapshot unchanged');

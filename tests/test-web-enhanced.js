@@ -15,6 +15,7 @@ function element(tag, cls = '', text = '') {
   e.appendTo = parent => { parent.append(e); return e; };
   e.empty = () => { e.kids = []; e._text = ''; return e; };
   e.children = () => ({length: e.kids.length});
+  e.each = fn => {if(e.length)fn.call(e);return e;};
   e.attr = (a, b) => { if (typeof a === 'object') Object.assign(e.attrs, a); else e.attrs[a] = b; return e; };
   e.prop = (a, b) => { e[a] = b; return e; };
   e.on = (names, fn) => { names.split(' ').forEach(name => { e.handlers[name] = fn; }); return e; };
@@ -73,7 +74,7 @@ $.ajax = options => {
 const context = {window, location, document: {documentElement: {contains: e => e === root}, activeElement: {tagName: 'BODY', focus() {}}, hidden: false},
   Date, setTimeout: () => {}, addInterval: () => {},
   define: (deps, factory) => { page = factory($, {createRequest: (object, method, args) => ({params: [session, object, method, args]})}, config, model,
-    {intervalFor: () => 20000, render: () => element('div', 'u60-advanced', 'advanced state')}); }};
+    {intervalFor: () => 20000, render: (tab, data, api) => element('div', 'u60-advanced', 'advanced state').append(element('button', '', '全局代理').on('click', () => api.open({label:'切换为全局代理',type:'action',action:'web.clash.mode',args:{mode:'global'},confirm:true,enabled:true})))}); }};
 vm.createContext(context);
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(setImmediate); };
 const load = () => { vm.runInContext(source, context); page.init(); };

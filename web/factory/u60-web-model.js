@@ -28,7 +28,7 @@
  };
  function filterSections(sections,tab){
   var groups={network:['wifi','usb'],clash:['clash'],tailscale:['tailscale'],device:['battery'],more:['band','signal','diagnostics']};
-  return (sections||[]).filter(function(s){return groups[tab]&&groups[tab].indexOf(s.id)>=0;}).map(function(s){
+  var filtered=(sections||[]).filter(function(s){return groups[tab]&&groups[tab].indexOf(s.id)>=0;}).map(function(s){
    var items=(s.items||[]).filter(function(i){
     if(s.id==='clash')return ['clash.select','clash.delay','clash.provider','clash.rule_add','clash.rule_edit','diag.connections','clash.close_connections'].indexOf(i.action)<0;
     if(s.id==='tailscale')return i.action!=='tailscale.peer_test'&&i.id!=='self-ip'&&i.id!=='backend'&&(i.id||'').indexOf('peer_')!==0;
@@ -37,6 +37,13 @@
    if(additions[s.id])items.sort(function(a,b){return additions[s.id].indexOf(a.id)-additions[s.id].indexOf(b.id);});
    return Object.assign({},s,{title:s.id==='wifi'?'Wi-Fi 中继':s.id==='battery'?'充电与深待机':s.title,items:items});
   }).filter(function(s){return s.items.length>0;});
+  function split(section,parts){return parts.map(function(p){return {id:p[0],title:p[1],collapsed:!!p[3],items:section.items.filter(function(i){return p[2].indexOf(i.id)>=0;})};}).filter(function(s){return s.items.length;});}
+  return filtered.reduce(function(out,s){
+   if(s.id==='usb')return out.concat(split(s,[['usb-adapter','外接 USB 网卡',['role','status','wiring']],['usb-cable','USB 数据线直连',['macnet.mode','macnet.link','macnet.help']]]));
+   if(s.id==='tailscale')return out.concat(split(s,[['tailscale','组网与访问',['connected','lan-gateway','advertise_lan']],['tailscale-exit','互联网出口',['exit','offer_exit']],['tailscale-options','高级组网设置',['mode','RouteAll','CorpDNS','ExitNodeAllowLANAccess'],true]]));
+   if(s.id==='battery')return out.concat(split(s,[['power-controls','充电与待机设置',['charge.manual','charge.policy','usb.power_role','power.standby']],['power-status','电池与供电状态',['usb.charge_state','charge.connected','charge.temp','charge.voltage','charge.current','charge.policy_status','power.standby_state']]]));
+   return out.concat(s);
+  },[]);
  }
  return {interactive:interactive,argumentsFor:argumentsFor,readable:readable,bytes:bytes,selectableNodes:selectableNodes,defaultNodeGroup:defaultNodeGroup,filterSections:filterSections};
 }));
