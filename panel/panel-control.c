@@ -374,8 +374,10 @@ static cJSON *state(void){
  const char *link_state=!known?"读取失败":!cJSON_IsTrue(jget(mac,"bound"))?"USB 功能未绑定":!cJSON_IsTrue(jget(mac,"configured"))?"等待电脑识别":!cJSON_IsTrue(jget(mac,"carrier"))?"USB 已枚举，网络链路未建立":!cJSON_IsTrue(jget(mac,"bridged"))?"网口已连接，未加入内网":"USB 内网链路已连接，上网待验证";
  item(s,"macnet.link","USB 直连链路","info",link_state,NULL,0,NULL);
  const char *ts=jstr(mac,"trial_state");int pending=!strcmp(ts,"pending"),active=!strcmp(ts,"active"),failed=!strcmp(ts,"failed");
- item(s,"macnet.help","Mac 连接说明","info",!strcmp(mm,"ecm")?"ECM 已启用；请确认电脑取得地址并能上网":cJSON_IsTrue(jget(mac,"switch_available"))?"Mac 需要 ECM；通过 Wi-Fi 管理可保留恢复入口":"Mac ECM 尚未完成恢复验证；请使用 Wi-Fi",NULL,0,NULL);
- cJSON *trial=item(s,"macnet.trial","Mac USB 连接","choice",pending?"试运行中 · 等待确认":active?"ECM · 本次生效":failed?"恢复未完成":!strcmp(ts,"restored")?"已恢复 RNDIS":cJSON_IsTrue(jget(mac,"switch_available"))?"RNDIS · 可试用 ECM":"ECM 适配中","usb.macnet.trial",cJSON_IsTrue(jget(mac,"switch_available"))||pending||active||failed,"仅 B31；USB 将短暂断开。90 秒内确认电脑已联网，否则自动恢复。重启不保留 ECM。");
+ const char *mac_help=!strcmp(mm,"ecm")?"ECM 已启用；请确认电脑取得地址并能上网":cJSON_IsTrue(jget(mac,"switch_available"))?"Mac 需要 ECM；通过 Wi-Fi 管理可保留恢复入口":cJSON_IsTrue(jget(mac,"ncm_present"))?"内核具备 NCM；仍需完成 USB 切换、ADB 恢复和 Mac 联网验收":"Mac 原生 USB 网络适配尚未完成；请使用 Wi-Fi";
+ item(s,"macnet.help","Mac 连接说明","info",mac_help,NULL,0,NULL);
+ const char *mac_label=pending?"试运行中 · 等待确认":active?"ECM · 本次生效":failed?"恢复未完成":!strcmp(ts,"restored")?"已恢复 RNDIS":cJSON_IsTrue(jget(mac,"switch_available"))?"RNDIS · 可试用 ECM":cJSON_IsTrue(jget(mac,"ncm_present"))?"NCM · 待验证":"USB 原生网络适配中";
+ cJSON *trial=item(s,"macnet.trial","Mac USB 连接","choice",mac_label,"usb.macnet.trial",cJSON_IsTrue(jget(mac,"switch_available"))||pending||active||failed,"仅 B31；USB 切换会短暂中断 ADB。NCM 尚未完成安全回退和 Mac 联网验收，当前不会启用。");
  if(pending)choice(trial,"电脑已联网，保留 ECM","action","confirm");
  if(pending||active||failed)choice(trial,"恢复原厂 RNDIS","action","restore");
  else if(cJSON_IsTrue(jget(mac,"switch_available")))choice(trial,"试用 ECM（适用于 Mac）","action","start");

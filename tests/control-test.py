@@ -95,6 +95,7 @@ with tempfile.TemporaryDirectory(prefix='u60-control-test-') as tmp:
   r=call('usb.macnet.trial',{'action':action},{'ecm_action_ok':True});assert r['ok'] and r['fixture_write_count']==1
  r=call('usb.macnet.trial',{'action':'bad;command'});assert not r['ok'] and r['fixture_write_count']==0
  for host in [
+  {'ok':True,'mode':'rndis','bound':True,'configured':True,'ncm_present':True},
   {'ok':True,'mode':'rndis','bound':True,'configured':True,'carrier':False},
   {'ok':True,'mode':'ecm','bound':True,'configured':True,'carrier':True,'bridged':True},
   {'ok':True,'mode':'ecm','bound':False},

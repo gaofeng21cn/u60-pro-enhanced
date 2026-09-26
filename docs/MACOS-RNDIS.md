@@ -2,6 +2,8 @@
 
 U60 B31 出厂 USB gadget 使用 RNDIS。macOS 没有原生 RNDIS 网络接口驱动，因此 Mac 不会像 Windows 一样自动出现网卡。项目保留 U60 原厂 RNDIS、ADB、诊断和其他 USB function 不变，在 Mac 端使用上游 [TetherKit](https://github.com/XiaoMiku01/TetherKit) 以用户态 libusb + `feth` 虚拟网卡接入。
 
+已核对的一台 B31 内核编译了 Linux NCM function，本机 Mac 也加载了原生 NCM 驱动，但原厂 USB composition 脚本没有 NCM 切换入口；切换会同时解绑 ADB 和诊断 function。NCM 目前保持禁用。要做到 Mac 插线即出现网卡，仍需完成 U60 侧 NCM composition、Mac 枚举、DHCP、联网及失败后 ADB 恢复的整条验收链；把 TetherKit 放进 U60 只能提供安装文件，Mac 端仍需主动运行并授权，不能实现免安装直连。
+
 这条路径的安全边界是：助手只在 Mac 上声明 RNDIS 控制/数据接口；不会向 U60 ConfigFS 写入，不会切换 `gsi.rndis`、ECM 或 NCM，不会执行 adb 写入。TetherKit 上游代码也明确避免 `libusb_set_auto_detach_kernel_driver`，以免触发整设备重新枚举。停止助手后，U60 仍保持原厂 USB 组合，ADB 不需要恢复。
 
 ## 安装与连接
@@ -47,3 +49,15 @@ sh u60-rndis.sh stop
 本机 macOS 26.5.2 已真实枚举 U60 `19d2:1404` RNDIS，TetherKit `v0.1.5` 的 `--list` 能识别控制接口 0 和数据接口 1。这证明 Mac 端枚举和用户态接管的前置条件成立；DHCP、默认路由和真实 HTTPS 仍需在当前 U60 连接上单独验收。它不证明 ECM/NCM，也不改变 U60 原厂 RNDIS 的设备侧限制。
 
 TetherKit 由上游以 MIT 许可发布；本项目不打包、修改或重新发布 TetherKit 二进制。
+
+## NCM 维护试运行（默认关闭）
+
+安装包中的 `installer/payload/data/u60-panel/usb-ncm-trial.sh` 只用于维护人员在设备旁边、已有 Wi-Fi 恢复入口时做候选验证；它不由启动项或普通 UI 调用。脚本只接受已回读的 B31 原厂 RNDIS + ADB 组合，先保存完整 function 链接、UDC 和描述符；发现原厂 `zte_ubus_bsp_usb`/`zte_usb_switch` owner 竞争时直接拒绝，试运行超时自动恢复。不要手工停止 owner、绕过门禁或把它改成开机服务。
+
+```sh
+adb shell /data/u60-panel/usb-ncm-trial.sh status
+adb shell /data/u60-panel/usb-ncm-trial.sh start
+# 仅在 Mac 原生 NCM 枚举、DHCP、HTTPS 和 ADB 恢复均已确认后才可确认
+adb shell /data/u60-panel/usb-ncm-trial.sh confirm
+adb shell /data/u60-panel/usb-ncm-trial.sh restore
+```

@@ -39,11 +39,13 @@ TRIAL=/tmp/u60-ecm-trial
 [ ! -f "$TRIAL/state" ] || trial=$(cat "$TRIAL/state")
 case "$trial" in idle|pending|active|restored|failed) ;; *) trial=failed;; esac
 available=false
+ncm_present=false
+[ ! -d "$GADGET/functions/ncm.0" ] || ncm_present=true
 if [ "$ECM_QUALIFIED" = true ] && [ "$(uname -r)" = 5.15.194-perf ] && [ -d "$GADGET/functions/ecm.ecm" ] && [ "$adb" = true ] && [ "$bound" = true ] && [ "$mode" = rndis ]; then available=true; fi
 case "${1:-enable}" in
  status)
   ok=false; [ "$mode" = unknown ] || ok=true
-  printf '{"ok":%s,"mode":"%s","adb_function":%s,"bound":%s,"configured":%s,"carrier":%s,"bridged":%s,"switch_available":%s,"trial_state":"%s"}\n' "$ok" "$mode" "$adb" "$bound" "$configured" "$carrier" "$bridged" "$available" "$trial"
+ printf '{"ok":%s,"mode":"%s","adb_function":%s,"bound":%s,"configured":%s,"carrier":%s,"bridged":%s,"switch_available":%s,"ncm_present":%s,"trial_state":"%s"}\n' "$ok" "$mode" "$adb" "$bound" "$configured" "$carrier" "$bridged" "$available" "$ncm_present" "$trial"
   ;;
  enable|restore|rndis)
   printf '%s\n' '{"ok":false,"message":"USB 在线切换尚未通过枚举与回退验证，未修改设备；请保持当前模式并通过 Wi-Fi 管理"}'

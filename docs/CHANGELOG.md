@@ -1,5 +1,11 @@
 # 更新记录
 
+## v0.1.11-experimental · 2026-09-26
+
+- USB 诊断区分“内核存在 NCM”与“NCM 已通过切换验收”，待验证能力保持禁用；保留原厂 RNDIS 和 ADB 组合。
+
+- 增加独立 NCM 维护试运行事务，覆盖完整原厂 function 快照、UDC/ADB 回读、超时自动恢复和原厂 USB owner 竞争拒绝；不把 NCM 候选误报为 Mac 即插即用能力。
+
 ## v0.1.10-experimental · 2026-09-25
 
 - 增加 macOS RNDIS 用户态助手 `macos/u60-rndis.sh`：自动安装/检查 TetherKit、识别 U60 `19d2:1404`、启动 DHCP、查看状态和停止清理。

@@ -3,7 +3,7 @@
 import hashlib,importlib.util,pathlib,shutil,tarfile
 R=pathlib.Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('prepare',R/'scripts/prepare.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
-VERSION='v0.1.10-experimental';out=R/'dist'/('u60-pro-enhanced-'+VERSION)
+VERSION='v0.1.11-experimental';out=R/'dist'/('u60-pro-enhanced-'+VERSION)
 if out.exists():raise SystemExit('Release directory exists; inspect it before rebuilding')
 out.mkdir(parents=True)
 for n in ['prepare.py']:shutil.copyfile(R/'scripts'/n,out/n)

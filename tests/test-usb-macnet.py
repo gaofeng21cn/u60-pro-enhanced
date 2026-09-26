@@ -54,6 +54,17 @@ class UsbDiagnosticsTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertTrue(all(status[k] for k in ('ok','bound','configured','carrier','bridged','adb_function')))
         self.assertFalse(status['switch_available'])
+        self.assertFalse(status['ncm_present'])
+        self.assertEqual(before, self.snapshot())
+
+    def test_present_ncm_does_not_enable_switching_or_change_active_mode(self):
+        self.configure('rndis', '0')
+        (self.gadget / 'functions/ncm.0').mkdir(parents=True)
+        before = self.snapshot()
+        _, status = self.call('status')
+        self.assertTrue(status['ncm_present'])
+        self.assertFalse(status['switch_available'])
+        self.assertEqual(status['mode'], 'rndis')
         self.assertEqual(before, self.snapshot())
 
     def test_missing_host_is_not_working_lan(self):

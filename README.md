@@ -2,7 +2,7 @@
 
 为中兴 U60 Pro（MU5250）国行 **B28 / B31** 提供原生小屏界面、原厂网页增强、Clash/Mihomo、Tailscale、Wi-Fi 接力与 USB 网口管理。保留原厂固件和管理页，双击电源键可切换界面。
 
-**当前版本：[v0.1.10-experimental](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.10-experimental)**。这是实验版：支持固件检查和设备身份绑定，不代表全部网络与硬件组合已经验收。安装前请阅读[验证范围](docs/VALIDATION.md)。
+**当前版本：[v0.1.11-experimental](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.11-experimental)**。这是实验版：支持固件检查和设备身份绑定，不代表全部网络与硬件组合已经验收。安装前请阅读[验证范围](docs/VALIDATION.md)。macOS 数据线直连默认继续使用 RNDIS + TetherKit；内核 NCM 只保留维护试运行入口，尚未发布为免安装能力。
 
 ## 先确认你的设备
 
@@ -18,14 +18,14 @@
 
 ## 下载与准备
 
-下载本仓库 Release 中的 `u60-pro-enhanced-v0.1.10-experimental.tar.gz` 和 `SHA256SUMS.txt`，不要使用 GitHub 自动生成的 Source code 压缩包作为安装包。上游 B28 包不能用于 B31。
+下载本仓库 Release 中的 `u60-pro-enhanced-v0.1.11-experimental.tar.gz` 和 `SHA256SUMS.txt`，不要使用 GitHub 自动生成的 Source code 压缩包作为安装包。上游 B28 包不能用于 B31。
 
 macOS 示例（Linux 将 `shasum -a 256` 换成 `sha256sum`）：
 
 ```sh
 shasum -a 256 -c SHA256SUMS.txt
-tar -xzf u60-pro-enhanced-v0.1.10-experimental.tar.gz
-cd u60-pro-enhanced-v0.1.10-experimental
+tar -xzf u60-pro-enhanced-v0.1.11-experimental.tar.gz
+cd u60-pro-enhanced-v0.1.11-experimental
 adb devices
 python3 prepare.py
 ```
@@ -91,7 +91,7 @@ Wi-Fi 接力支持 **2.4GHz 和非 DFS 的 5GHz 上游**，并非仅限 2.4GHz�
 macOS 没有原生 RNDIS 网卡驱动。Release 包的 `macos/u60-rndis.sh` 使用上游 [TetherKit](https://github.com/XiaoMiku01/TetherKit) 用户态桥接，不安装内核扩展、不降低 SIP，也不修改 U60 的 USB gadget。首次使用：
 
 ```sh
-cd u60-pro-enhanced-v0.1.10-experimental
+cd u60-pro-enhanced-v0.1.11-experimental
 sh macos/u60-rndis.sh install
 sh macos/u60-rndis.sh doctor
 sh macos/u60-rndis.sh start
