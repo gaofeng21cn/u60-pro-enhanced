@@ -10,7 +10,7 @@ import time
 import unittest
 
 ROOT=pathlib.Path(__file__).resolve().parents[1]
-SERVICES=['u60-usb-isolate','u60-usb-role','u60-wifi-relay','u60-standby','u60-web','u60-ncm-trial']
+SERVICES=['u60-usb-isolate','u60-usb-role','u60-wifi-relay','u60-standby','u60-web','u60-ncm-trial','u60-ecm-trial']
 class PortableInstall(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory(prefix='u60-portable-');self.root=pathlib.Path(self.tmp.name)
@@ -38,7 +38,7 @@ class PortableInstall(unittest.TestCase):
   payload=self.pkg/'payload'
   for d in ['data/u60-panel','data/u60-clash','data/tailscale/bin','data/u60-web','init','boot']:(payload/d).mkdir(parents=True,exist_ok=True)
   self.put(payload/'data/u60-panel/u60-panel','#!/bin/sh\nexit 0\n')
-  for name in ['usb-ncm-composition.sh','usb-ncm-trial.sh']:
+  for name in ['usb-ncm-composition.sh','usb-ncm-trial.sh','usb-ecm-trial.sh']:
    self.put(payload/'data/u60-panel'/name,'#!/bin/sh\nexit 1\n')
   self.put(payload/'data/u60-panel/panel-autostart.sh','#!/bin/sh\ntouch "'+str(self.target/'started')+'"\n')
   self.put(payload/'data/u60-panel/compat-mode','b31-ui-first\n')
