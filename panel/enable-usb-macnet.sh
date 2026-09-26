@@ -1,6 +1,6 @@
 #!/bin/sh
-# Read-only USB gadget diagnostics. Native NCM switching is quarantined
-# until independent recovery has been qualified.
+# Read-only USB gadget diagnostics. Native ECM switching is quarantined until
+# independent recovery has been qualified; status reads never mutate ConfigFS.
 set -u
 
 GADGET=/sys/kernel/config/usb_gadget/g1
@@ -52,16 +52,22 @@ ncm_composition=false
 for composition in /data/u60-panel/usb-ncm-composition.sh /sbin/usb/compositions/908C /sbin/usb/compositions/908c; do
   [ ! -x "$composition" ] || { ncm_composition=true; break; }
 done
+ecm_present=false
+[ ! -d "$GADGET/functions/gsi.ecm" ] && [ ! -d "$GADGET/functions/ecm.ecm" ] || ecm_present=true
+ecm_trial=idle
+ECM_TRIAL=/tmp/u60-ecm-trial
+[ ! -f "$ECM_TRIAL/state" ] || ecm_trial=$(cat "$ECM_TRIAL/state")
+case "$ecm_trial" in idle|pending|active|restored|failed) ;; *) ecm_trial=failed;; esac
 
 case "${1:-status}" in
   status)
     ok=false
     [ "$mode" = unknown ] || ok=true
-    printf '{"ok":%s,"mode":"%s","adb_function":%s,"bound":%s,"configured":%s,"carrier":%s,"bridged":%s,"switch_available":false,"ncm_present":%s,"ncm_composition":%s,"trial_state":"%s"}\n' \
-      "$ok" "$mode" "$adb" "$bound" "$configured" "$carrier" "$bridged" "$ncm_present" "$ncm_composition" "$trial"
+    printf '{"ok":%s,"mode":"%s","adb_function":%s,"bound":%s,"configured":%s,"carrier":%s,"bridged":%s,"switch_available":false,"ncm_present":%s,"ncm_composition":%s,"trial_state":"%s","ecm_present":%s,"ecm_trial_state":"%s"}\n' \
+      "$ok" "$mode" "$adb" "$bound" "$configured" "$carrier" "$bridged" "$ncm_present" "$ncm_composition" "$trial" "$ecm_present" "$ecm_trial"
     ;;
   enable|start|confirm|restore|restore-trial|rndis|invalid)
-    printf '%s\n' '{"ok":false,"message":"USB 在线切换已停用；NCM 的 ADB 恢复保护尚未验证"}'
+    printf '%s\n' '{"ok":false,"message":"USB 在线切换已停用；ECM 的 ADB 恢复保护尚未验证"}'
     exit 1
     ;;
   *)

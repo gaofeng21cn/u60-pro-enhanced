@@ -34,11 +34,12 @@ if [ "$ACTION" = --start ];then
  exit 0
 fi
 for name in u60-panel u60-clash tailscale u60-web;do [ ! -e "/data/$name" ] && [ ! -L "/data/$name" ] || fail 'Existing project files found; use the update workflow';done
-for name in u60-usb-isolate u60-usb-role u60-wifi-relay u60-standby u60-web u60-ncm-trial;do
+for name in u60-usb-isolate u60-usb-role u60-wifi-relay u60-standby u60-web u60-ncm-trial u60-ecm-trial;do
  [ ! -e "/etc/init.d/$name" ] && [ ! -L "/etc/init.d/$name" ] || fail 'Existing project init service found'
  for p in /etc/rc.d/*"$name";do [ ! -e "$p" ] && [ ! -L "$p" ] || fail 'Existing project boot link found';done
 done
 [ -f "$NCM_SOURCE" ] || fail 'NCM composition is missing from this package'
+[ -f payload/data/u60-panel/usb-ecm-trial.sh ] || fail 'ECM maintenance transaction is missing from this package'
 [ "$(awk '$0 == "exit 0" {n++} END {print n+0}' /etc/rc.local)" = 1 ] || fail 'Expected one exit 0 in stock rc.local'
 ! grep -q 'u60-panel\|u60-clash\|/data/tailscale' /etc/rc.local || fail 'Existing custom boot entries require review'
 [ ! -e "$BACKUP" ] && [ ! -L "$BACKUP" ] || fail 'Recovery directory already exists'
@@ -57,7 +58,7 @@ recover() {
  if [ "$result" -ne 0 ];then
   if [ "$CHANGED" = 1 ];then
    cp -p "$BACKUP/rc.local" /etc/rc.local
-   for name in u60-usb-isolate u60-usb-role u60-wifi-relay u60-standby u60-web u60-ncm-trial;do
+   for name in u60-usb-isolate u60-usb-role u60-wifi-relay u60-standby u60-web u60-ncm-trial u60-ecm-trial;do
     if [ -x "/etc/init.d/$name" ];then "/etc/init.d/$name" disable >/dev/null 2>&1 || true;fi
     rm -f "/etc/init.d/$name" "/etc/init.d/$name.portable-next"
    done
@@ -89,7 +90,7 @@ for name in u60-panel u60-clash tailscale u60-web;do
  printf '%s\n' "$name" >> "$BACKUP/created-dirs"
  mv "$STAGE/$name" "/data/$name"
 done
-for name in u60-usb-isolate u60-usb-role u60-wifi-relay u60-standby u60-web u60-ncm-trial;do
+for name in u60-usb-isolate u60-usb-role u60-wifi-relay u60-standby u60-web u60-ncm-trial u60-ecm-trial;do
  cp "payload/init/$name" "/etc/init.d/$name.portable-next"
  chmod 700 "/etc/init.d/$name.portable-next"
  mv "/etc/init.d/$name.portable-next" "/etc/init.d/$name"

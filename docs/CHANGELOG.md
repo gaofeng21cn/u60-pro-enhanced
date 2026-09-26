@@ -1,3 +1,9 @@
+## v0.1.14-experimental
+
+- 把一次真实通过的原厂 ECM Mac 业务链路纳入 USB 状态诊断；普通入口仍保持关闭，避免把未通过恢复验收的切换发布给用户。
+- 增加独立 ECM 维护事务：切换命令有界等待，超时和取消由监督进程通过原厂 USB composition owner 恢复，并回读 UDC、ADB FunctionFS 和配置状态。
+- NCM 继续保持封锁，仅作为设备能力研究；TetherKit 仍是 RNDIS 的 Mac 备用路径。
+
 # 更新记录
 
 ## v0.1.13-experimental · 2026-09-26

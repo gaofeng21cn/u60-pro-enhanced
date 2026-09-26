@@ -72,13 +72,13 @@ NCM_SOURCE="payload/data/u60-panel/usb-ncm-composition.sh"
 PLAN=$(cd payload/data && find . -type f | sed 's|^\./||' | sort | while IFS= read -r rel; do
  is_state "$rel" && continue
  if [ ! -e "/data/$rel" ]; then
-  [ "$rel" = u60-panel/usb-ncm-composition.sh ] || [ "$rel" = u60-panel/usb-ncm-trial.sh ] || fail "Unexpected new file in package: $rel"
+  [ "$rel" = u60-panel/usb-ncm-composition.sh ] || [ "$rel" = u60-panel/usb-ncm-trial.sh ] || [ "$rel" = u60-panel/usb-ecm-trial.sh ] || fail "Unexpected new file in package: $rel"
  fi
  printf '%s\n' "$rel"
 done)
 INIT_PLAN=$(cd payload/init && find . -type f | sed 's|^\./||' | sort | while IFS= read -r rel; do
  if [ ! -e "/etc/init.d/$rel" ]; then
-  [ "$rel" = u60-ncm-trial ] || fail "Unexpected new init service in package: $rel"
+  [ "$rel" = u60-ncm-trial ] || [ "$rel" = u60-ecm-trial ] || fail "Unexpected new init service in package: $rel"
  fi
  printf '%s\n' "$rel"
 done)

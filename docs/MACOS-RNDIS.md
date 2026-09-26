@@ -81,3 +81,9 @@ adb shell /data/u60-panel/usb-ncm-trial.sh status
 [高通 Linux USB 文档](https://docs.qualcomm.com/bundle/publicresource/topics/80-80022-8/usb.html)列出 `908C NCM + ADB`；[ModalAI 的高通平台实例](https://docs.modalai.com/qgc-via-adb/)也展示了 NCM 与 ADB 共存。这些资料证明有可研究的实现路径，不证明中兴 B31 的驱动、端点和服务可以直接复用。B31 已回读的原厂组合目录没有 `908C`，USB ubus 对象仅公开读取接口；直接调用项目脚本不等于已取得原厂管理服务的协调权。
 
 后续先研究原厂组合服务与驱动的配合、最小 NCM＋ADB 组合和完整恢复过程；验证用的日志须在断开 USB 前由独立进程持久保存。原厂组合的持久化分支涉及闪存写入，不得用于本项目试验。切换阻塞时，独立监督只能提供诊断和有界恢复尝试，不能保证解除内核阻塞；必须另有已实测的非 USB 管理入口。
+
+## ECM 维护事务
+
+v0.1.14 在安装包中保留了独立的 `usb-ecm-trial.sh` 维护事务，但普通界面仍不会启动它。事务开始前保存当前 ConfigFS 组合和 UDC，随后只调用原厂 `/sbin/usb_composition` owner；owner 命令在设备上有界等待，监督进程负责 90 秒业务确认窗口。取消、超时或进程退出都会调用原厂 owner 重建 FunctionFS，再回读 UDC 为 `configured`、`ffs.adb` 链接、ADB `ep0` 和 `adbd`。任一项未恢复都返回失败，不能把 ConfigFS 链接存在当作恢复成功。
+
+这条事务已经通过主机隔离 fixture 验证切换、确认和 owner 恢复，但尚未在拿回 ADB 的 B31 上完成真实自动恢复、拔插和冷启动验收。因此设备状态页继续显示“ECM · 已验业务，待恢复验收”，`switch_available` 保持 `false`。设备现场恢复只能通过 Wi-Fi 管理页或物理恢复完成，不能用匿名 UBus 请求绕过登录态。
