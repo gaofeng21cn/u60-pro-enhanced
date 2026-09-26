@@ -81,16 +81,16 @@ python3 deploy-from-computer.py upgrade
 |---|---|
 | U60 → USB 网卡 → 网线 → 电脑 | 选择 **LAN**，给下游供网；LAN 增加以下驱动的实验性适配： `r8152`、`cdc_ether`、`cdc_ncm`、`aqc111` 与 ASIX 驱动；AUTO 上游目前只对已验证的 AX88179（`0b95:1790`、`ax_usb_nic`）开放 |
 | 上级路由器 → 网线 → USB 网卡 → U60 | 选择 **AUTO**，获取有线上游地址；断线可回蜂窝。AUTO 不会把“没有 DHCP”猜成 LAN |
-| U60 → USB 数据线 → Mac | 优先补齐并验证原生 NCM composition；在 NCM 完成实机验收前保持默认 RNDIS。只有原生 NCM 被设备验收证明无法安全成立后，才使用 `macos/u60-rndis.sh` 的 TetherKit 降级方案 |
+| U60 → USB 数据线 → Mac | 原生 USB 网络优先走原厂 ECM；B31 已实测 Mac 原生枚举、DHCP、管理页和 HTTPS 业务通过，但恢复 ADB 的验收尚未通过，因此 Release 仍保持 RNDIS＋ADB，普通入口关闭。NCM 保留为设备能力研究；TetherKit 只作为不切换 U60 的 RNDIS 备用方案 |
 | 上游 Wi-Fi → U60 → 自身热点或 LAN | 同时连接一个 2.4G／非 DFS 5G 上游，最多保存 8 个网络，按首选顺序重连；不是 Mesh，不聚合两条 Wi-Fi 带宽 |
 
 Wi-Fi 接力支持 **2.4GHz 和非 DFS 的 5GHz 上游**，并非仅限 2.4GHz。5GHz 支持信道 36/40/44/48、149/153/157/161/165；找不到 5GHz 网络时先检查上游信道。
 
 ### Mac 数据线直连
 
-路线顺序固定为：先实现并验证原生 NCM，再考虑 TetherKit 降级。候选试运行尚未出现 Mac 原生网卡，且 ADB 未能自动恢复；设备经现场重启恢复原厂 RNDIS＋ADB。当前已封锁试运行与底层切换入口，不能把代码存在当成可用能力，也不能据此判定原生 NCM 不可实现。恢复保护和独立管理通道验证通过之前，不再进行设备 USB 切换。
+路线顺序现在收敛为：先验证原厂 ECM 的 Mac 直连，再研究 NCM；TetherKit 只作为不切换 U60 的 RNDIS 备用方案。一次 B31 实测已经证明 ECM 可以让 macOS 原生出现 `ZTE Mobile Broadband` 网口，DHCP 获得 `192.168.0.194/24`，访问 U60 管理页返回 HTTP 200，Google 返回 204、Cloudflare 返回 200 且 TLS 校验通过。试验结束时 ADB 没有自动恢复，因此当前 Release 仍保持原厂 RNDIS＋ADB，普通入口关闭；这次业务通过不能替代恢复验收。
 
-macOS 原生支持 CDC NCM，但不支持 U60 当前的 RNDIS。NCM composition 验收完成前，Release 包只把上游 [TetherKit](https://github.com/XiaoMiku01/TetherKit) 作为保留的降级材料，不把它当作当前主路线；它不安装内核扩展、不降低 SIP，也不修改 U60 的 USB gadget。只有 NCM 被设备验收证明无法安全成立后，才按下列方式启用降级方案：
+macOS 原生支持 CDC ECM/NCM，但不支持 U60 当前的 RNDIS。原厂 ECM 已越过“Mac 能否直接使用”的业务断点，剩余工作是让 USB owner 在切换失败、拔插和冷启动时可靠恢复 RNDIS＋ADB。NCM 仍保留为设备能力研究，不把 ConfigFS 中存在 `ncm.0` 当成产品支持。TetherKit 不安装内核扩展、不降低 SIP，也不修改 U60 的 USB gadget；需要立即使用 RNDIS 时按下列方式启用备用方案：
 
 ```sh
 cd u60-pro-enhanced-v0.1.13-experimental

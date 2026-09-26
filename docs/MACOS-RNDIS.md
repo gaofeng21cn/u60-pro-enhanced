@@ -1,16 +1,16 @@
-# Mac RNDIS 直连
+# Mac USB 直连：ECM、NCM 与 RNDIS
 
 ## 路线决策
 
-路线顺序固定为两层：先实现并验证原生 NCM，只有 NCM 因设备 composition、owner 或实机业务验收无法安全成立时，才使用 TetherKit 降级。B31 的候选 NCM composition 未通过实机恢复验证，目前试运行和底层切换入口均拒绝写入；这不构成原生 NCM 不可实现的结论。原厂 `9059` 是 ECM 候选，但不替代用户要求的 NCM 主线。
+路线顺序固定为三层：先验证原厂 ECM 的 Mac 业务，再研究 NCM，最后保留 TetherKit 的 RNDIS 备用路径。B31 已完成一次 ECM 业务验证；原生 Mac 出现 `ZTE Mobile Broadband`，DHCP、U60 管理页、Google 204 和 Cloudflare 200 均通过，TLS 校验为 0。试验后的 ADB/原厂组合恢复尚未通过，因此 ECM 还不能作为 Release 默认能力。
 
-原生 NCM 必须同时满足 Mac 原生网卡枚举、DHCP、U60 管理地址、Google/Cloudflare HTTPS、拔插/冷启动和 ADB 保持或恢复；通过其中一项不能发布。实现应接入原厂 `/sbin/usb_composition` 的 composition owner，不能停用 `zte_ubus_bsp_usb`、`zte_usb_switch`，也不能把一次手工 ConfigFS 试验当成产品能力。在这条验收链完成前，普通用户开关保持关闭。
+原生 ECM/NCM 必须同时满足 Mac 原生网卡枚举、DHCP、U60 管理地址、Google/Cloudflare HTTPS、拔插/冷启动和 ADB 保持或恢复；通过其中一项不能发布。实现必须接入原厂 `/sbin/usb_composition` 的 composition owner，不能停用 `zte_ubus_bsp_usb`、`zte_usb_switch`，也不能把一次手工 ConfigFS 试验当成产品能力。在恢复链完成前，普通用户开关保持关闭。
 
 TetherKit GUI 是原生路线被证伪后的降级方案：U60 保持原厂 RNDIS + ADB 组合，Mac 首次安装官方 GUI 并授权一次 privileged helper，之后由 helper 创建和维护 `feth`。它不是原生能力，也不改变原生 ECM/NCM 的验收结论。
 
 U60 B31 出厂 USB gadget 使用 RNDIS。macOS 没有原生 RNDIS 网络接口驱动，因此 Mac 不会像 Windows 一样自动出现网卡。项目保留 U60 原厂 RNDIS、ADB、诊断和其他 USB function 不变，在 Mac 端使用上游 [TetherKit](https://github.com/XiaoMiku01/TetherKit) 以用户态 libusb + `feth` 虚拟网卡接入。
 
-已核对的一台 B31 内核编译了 Linux NCM function，本机 Mac 也加载了原生 NCM 驱动；现有 `9059`/`9057` 只提供 ECM。仓库保留候选 composition 源码，但执行入口已封锁。实机试运行后未观察到 NCM 网卡或 DHCP，ADB 也未自动恢复；现场重启后已回读原厂 RNDIS＋ADB 恢复。没有切换中途的设备日志，不能确定卡在解绑、绑定还是恢复阶段。不能因为 TetherKit 已能枚举 RNDIS 就结束 NCM 工作，也不能因为 composition 文件存在就宣称 Mac 原生网络已可用。
+已核对的一台 B31 内核编译了 Linux NCM function，本机 Mac 也加载了原生 NCM 驱动；原厂合法组合列表包含 `9059 = RNDIS + DIAG + ADB + ECM`，不包含项目候选的 `908C NCM`。一次 9059 实机切换已经证明 ECM 的 Mac 业务链路成立，但自动恢复没有让 ADB 重新枚举，随后需要人工拔插恢复现场。这个结果证明“Mac 原生 USB 网络”可行，也证明当前恢复监督还不够安全；不能把它发布成无感能力。
 
 这条路径的安全边界是：助手只在 Mac 上声明 RNDIS 控制/数据接口；不会向 U60 ConfigFS 写入，不会切换 `gsi.rndis`、ECM 或 NCM，不会执行 adb 写入。TetherKit 上游代码也明确避免 `libusb_set_auto_detach_kernel_driver`，以免触发整设备重新枚举。停止助手后，U60 仍保持原厂 USB 组合，ADB 不需要恢复。
 

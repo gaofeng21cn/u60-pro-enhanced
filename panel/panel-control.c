@@ -369,8 +369,8 @@ static cJSON *state(void){
  item(s,"macnet.mode","USB 直连协议","info",!known?"未知":!strcmp(mm,"ecm")?"ECM":!strcmp(mm,"rndis")?"RNDIS":!strcmp(mm,"ncm")?"NCM":"未知",NULL,0,NULL);
  const char *link_state=!known?"读取失败":!cJSON_IsTrue(jget(mac,"bound"))?"USB 功能未绑定":!cJSON_IsTrue(jget(mac,"configured"))?"等待电脑识别":!cJSON_IsTrue(jget(mac,"carrier"))?"USB 已枚举，网络链路未建立":!cJSON_IsTrue(jget(mac,"bridged"))?"网口已连接，未加入内网":"USB 内网链路已连接，上网待验证";
  item(s,"macnet.link","USB 直连链路","info",link_state,NULL,0,NULL);
- item(s,"macnet.help","Mac 连接说明","info","Mac 原生 NCM 尚未通过验收；USB 切换已停用，保护 ADB",NULL,0,NULL);
- item(s,"macnet.trial","Mac USB 连接","info","NCM · 待验证，切换已停用",NULL,0,"原生 NCM 的独立恢复和联网能力尚未验证，保持原厂 USB 组合。");
+ item(s,"macnet.help","Mac 连接说明","info","原厂 ECM 已完成一次 Mac 业务验证；恢复 ADB 尚未通过，USB 切换仍停用",NULL,0,NULL);
+ item(s,"macnet.trial","Mac USB 连接","info","ECM · 已验业务，待恢复验收",NULL,0,"Mac 已能原生枚举 ECM、获取 DHCP 并访问管理页与 HTTPS；由于试验后 ADB 未自动恢复，普通入口继续关闭。NCM 仍仅作设备能力研究。");
  if(!strcmp(port_state,"WAIT_ADAPTER")){
   const char*summary=!known?"USB 状态未知":!cJSON_IsTrue(jget(mac,"bound"))?"USB 未就绪":!cJSON_IsTrue(jget(mac,"configured"))?"等待电脑识别":!cJSON_IsTrue(jget(mac,"carrier"))?"USB 未联网":!cJSON_IsTrue(jget(mac,"bridged"))?"USB 未接入内网":"USB 内网已连接";
   cJSON_ReplaceItemInObject(d,"usb_status",cJSON_CreateString(summary));
