@@ -3,7 +3,7 @@
 import hashlib,importlib.util,pathlib,shutil,tarfile
 R=pathlib.Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('prepare',R/'scripts/prepare.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
-VERSION='v0.1.13-experimental';out=R/'dist'/('u60-pro-enhanced-'+VERSION)
+VERSION='v0.1.14-experimental';out=R/'dist'/('u60-pro-enhanced-'+VERSION)
 if out.exists():raise SystemExit('Release directory exists; inspect it before rebuilding')
 out.mkdir(parents=True)
 for n in ['prepare.py']:shutil.copyfile(R/'scripts'/n,out/n)
@@ -31,7 +31,7 @@ for local,remote in [('u60-web-advanced.js','js/u60-web-advanced.js'),('u60-enha
  dest=web/'public'/remote;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(R/'web/factory'/local,dest)
 (web/'public/u60-extension-version.txt').write_text('20260926-profile-ux-22\n')
 (p/'init').mkdir();(p/'boot').mkdir()
-for local,remote in [('usb-isolate','u60-usb-isolate'),('usb-role','u60-usb-role'),('wifi-relay','u60-wifi-relay'),('standby','u60-standby'),('web','u60-web'),('usb-ncm-trial','u60-ncm-trial')]:
+for local,remote in [('usb-isolate','u60-usb-isolate'),('usb-role','u60-usb-role'),('wifi-relay','u60-wifi-relay'),('standby','u60-standby'),('web','u60-web'),('usb-ncm-trial','u60-ncm-trial'),('usb-ecm-trial','u60-ecm-trial')]:
  shutil.copyfile(R/'panel'/(local+'-init.sh'),p/'init'/remote);(p/'init'/remote).chmod(0o700)
 shutil.copyfile(R/'scripts/portable/portable-boot.sh',p/'boot/portable-boot.sh')
 for n in ['check-device.sh','install-new-device.sh','upgrade-installed.sh','restore-boot.sh','deploy-from-computer.py']:shutil.copyfile(R/'scripts/portable'/n,i/n)
