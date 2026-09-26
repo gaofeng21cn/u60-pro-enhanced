@@ -31,12 +31,13 @@ class UsbDiagnosticsTests(unittest.TestCase):
         self.assertEqual(result.stderr, '')
         return result.returncode, json.loads(result.stdout)
 
-    def configure(self, mode='ecm', carrier='1', bridge=True):
-        (self.gadget / 'configs/c.1/f3').symlink_to(f'../../functions/gsi.{mode}')
+    def configure(self, mode='rndis', carrier='1', bridge=True):
+        target = 'gsi.rndis' if mode == 'rndis' else 'ncm.0'
+        (self.gadget / 'configs/c.1/f3').symlink_to(f'../../functions/{target}')
         (self.gadget / 'configs/c.1/f6').symlink_to('../../functions/ffs.adb')
         (self.gadget / 'UDC').write_text('controller\n')
         (self.udcs / 'controller/state').write_text('configured\n')
-        interface = self.net / ('ecm0' if mode == 'ecm' else 'rndis0')
+        interface = self.net / ('rndis0' if mode == 'rndis' else 'usb0')
         interface.mkdir()
         (interface / 'carrier').write_text(carrier)
         if bridge:
@@ -63,6 +64,7 @@ class UsbDiagnosticsTests(unittest.TestCase):
         before = self.snapshot()
         _, status = self.call('status')
         self.assertTrue(status['ncm_present'])
+        self.assertFalse(status['ncm_composition'])
         self.assertFalse(status['switch_available'])
         self.assertEqual(status['mode'], 'rndis')
         self.assertEqual(before, self.snapshot())
@@ -89,7 +91,7 @@ class UsbDiagnosticsTests(unittest.TestCase):
     def test_old_mutation_entry_points_cannot_reconfigure_usb(self):
         self.configure()
         before = self.snapshot()
-        for action in ('enable', 'restore', 'rndis', 'invalid'):
+        for action in ('enable', 'start', 'confirm', 'restore', 'rndis', 'invalid'):
             rc, result = self.call(action)
             self.assertNotEqual(rc, 0)
             self.assertFalse(result['ok'])

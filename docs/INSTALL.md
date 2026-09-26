@@ -23,7 +23,7 @@ macOS/Linux 使用终端；Windows 可用 Python 3 与 `adb.exe`，Windows 完�
 
 ### 从本仓库源码构建
 
-可下载本仓库 [v0.1.11-experimental 安装包](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.11-experimental)，下载用户不需要编译器。以下是开发者构建方式。构建依赖 Zig 0.14.1、Go、Python 3 和 Git，主机测试还需 C 编译器和 Node.js。**请显式使用 Zig 0.14.1**：0.16 会构建失败。
+可下载本仓库 [v0.1.12-experimental 安装包](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.12-experimental)，下载用户不需要编译器。以下是开发者构建方式。构建依赖 Zig 0.14.1、Go、Python 3 和 Git，主机测试还需 C 编译器和 Node.js。**请显式使用 Zig 0.14.1**：0.16 会构建失败。
 
 ```sh
 sh scripts/build.sh
@@ -42,7 +42,7 @@ python3 scripts/package.py
 先进入安装包目录。本仓库构建产物位于 `dist/u60-pro-enhanced-<版本>/`（构建后可用 `ls dist/` 查看实际目录名），使用上游 Release 时就是解压出来的同名目录。
 
 ```sh
-cd dist/u60-pro-enhanced-v0.1.11-experimental
+cd dist/u60-pro-enhanced-v0.1.12-experimental
 python3 prepare.py
 ```
 
@@ -102,7 +102,7 @@ adb shell sh /data/u60-panel/setup-clash.sh
 
 正确的通用模型是系统 epoch 表示 UTC 时间，显示层按 `Asia/Shanghai` 转换为北京时间；时区不应改变 epoch。B31 实测可能将东八区本地时间写入系统 epoch，同时保持 `TZ=UTC`。小屏显示看似正确，但 VMess 握手会因约 8 小时偏差失败。仅修改 `TZ` 或只减去 8 小时都不能解决原厂 NITZ/NTP 后续写回的问题。
 
-首次配置默认启用 Mihomo 自带 NTP，使用 DIRECT 获取时间、只校正核心内部协议时间，`write-to-system: false`。这是与原厂固件兼容的协议修复，并未修正整机 epoch；保留原厂时钟和定时功能，不固定减去某个时区偏移，也不关闭 TLS 验证。需要能访问所配置 NTP 服务的 UDP 123；同步前或 NTP 不可达时，时间敏感节点仍可能失败。
+首次配置默认启用 Mihomo 自带 NTP，通过 DIRECT 向 Cloudflare NTP 的 IPv4 地址 `162.159.200.1` 获取时间，避免代理 DNS 与校时相互依赖。只校正核心内部协议时间，`write-to-system: false`；并未修正整机 epoch，保留原厂时钟和定时功能，不固定减去时区偏移，也不关闭 TLS 验证。需要能访问该服务的 UDP 123；同步前或 NTP 不可达时，时间敏感节点仍可能失败。
 
 已有配置的用户可显式执行（升级程序本身不重写私人配置）：
 
@@ -111,6 +111,8 @@ adb shell sh /data/u60-panel/setup-clash.sh --enable-ntp
 ```
 
 该命令只在尚无顶层 `ntp` 配置时追加设置，先备份和校验，再热加载；失败恢复原配置。已有 NTP 设置保持原样。待同步后重新请求目标站点；不以配置存在代替联网成功。
+
+已使用本项目旧默认 `time.apple.com`、日志出现 `Sync time failed` 的用户，可运行 `adb shell sh /data/u60-panel/setup-clash.sh --repair-ntp`。该入口只替换旧默认地址，备份、校验、热加载及失败回退与上述入口相同；自定义 NTP 地址不修改。升级本身仍不重写私人配置。
 
 ## Tailscale 首次使用
 

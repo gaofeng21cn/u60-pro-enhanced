@@ -315,17 +315,22 @@ status() {
  [ "$enabled" = true ] || state=OFF
  [ "$active" != true ] || state=CONNECTED
  [ "$active:$state" != false:CONNECTED ] || state=CELLULAR
- frequency=$(wpa status | sed -n "s/^freq=//p");case "$frequency" in ''|*[!0-9]*) frequency=0;; esac
+ link_status=$(wpa status)
+ frequency=$(printf '%s\n' "$link_status" | sed -n "s/^freq=//p");case "$frequency" in ''|*[!0-9]*) frequency=0;; esac
+ link_state=$(printf '%s\n' "$link_status" | sed -n 's/^wpa_state=//p')
+ case "$link_state" in DISCONNECTED|INACTIVE|INTERFACE_DISABLED|SCANNING|AUTHENTICATING|ASSOCIATING|ASSOCIATED|4WAY_HANDSHAKE|GROUP_HANDSHAKE|COMPLETED) ;; *) link_state=UNKNOWN;; esac
  health=$(cat "$RUN/health" 2>/dev/null || echo UNKNOWN)
  case "$health" in ONLINE|PORTAL|UNREACHABLE|NO_LINK|UNKNOWN) ;; *) health=UNKNOWN;; esac
  [ "$active" = true ] || health=NO_LINK
  health_at=$(cat "$RUN/health-at" 2>/dev/null || echo 0);health_now=$(cut -d . -f 1 /proc/uptime)
  case "$health_at" in ''|*[!0-9]*) health_at=0;; esac
- if [ "$active" = true ] && [ "$((health_now-health_at))" -gt 90 ];then health=UNKNOWN;fi
+ health_age=-1
+ if [ "$active" = true ] && [ "$health_at" -gt 0 ] && [ "$health_now" -ge "$health_at" ];then health_age=$((health_now-health_at));fi
+ if [ "$active" = true ] && { [ "$health_age" -lt 0 ] || [ "$health_age" -gt 90 ]; };then health=UNKNOWN;fi
  service=false;/etc/init.d/u60-wifi-relay running >/dev/null 2>&1 && service=true
  [ "$enabled:$service" != true:false ] || state=SERVICE_DOWN
  saved=false;if [ -s "$PRIVATE/wpa.conf" ] && grep -q '^network={' "$PRIVATE/wpa.conf";then saved=true;fi
- printf '{"ok":true,"enabled":%s,"active":%s,"saved":%s,"state":"%s","frequency":%s,"health":"%s","service_running":%s,"fallback":"%s","autostart":%s,"ipv6":"cellular_blocked_while_relay"}\n' "$enabled" "$active" "$saved" "$state" "$frequency" "$health" "$service" "$(fallback_policy)" "$(autostart_policy)"
+ printf '{"ok":true,"enabled":%s,"active":%s,"saved":%s,"state":"%s","frequency":%s,"link_state":"%s","health":"%s","health_age_seconds":%s,"service_running":%s,"fallback":"%s","autostart":%s,"ipv6":"cellular_blocked_while_relay"}\n' "$enabled" "$active" "$saved" "$state" "$frequency" "$link_state" "$health" "$health_age" "$service" "$(fallback_policy)" "$(autostart_policy)"
 }
 stop_watch() {
  /etc/init.d/u60-wifi-relay stop >/dev/null 2>&1 || :

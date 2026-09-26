@@ -41,6 +41,28 @@ with tempfile.TemporaryDirectory() as td:
  assert next(x for x in rows if x['id']=='relay-fallback')['value']=='禁止蜂窝回退'
  assert next(x for x in rows if x['id']=='relay-forget')['enabled']
  assert call('wifi.relay.forget')['ok']
+ # Saved fallback intent must not be reported as proven cellular connectivity.
+ for link,label in [('SCANNING','正在寻找上游'),('4WAY_HANDSHAKE','正在验证上游密码'),('ASSOCIATING','正在连接上游'),('COMPLETED','Wi-Fi 已连接 · 等待路由')]:
+  data['relay.status'].update(enabled=True,active=False,state='CONNECTING',link_state=link)
+  r=call('state');row=next(x for x in next(s for s in r['sections'] if s['id']=='wifi')['items'] if x['id']=='relay')
+  assert row['value']==label and row['action']=='wifi.relay.off'
+ for policy in ['wifi-only','cellular']:
+  data['relay.status'].update(link_state='DISCONNECTED',fallback=policy)
+  r=call('state');rows=next(s['items'] for s in r['sections'] if s['id']=='wifi')
+  assert next(x for x in rows if x['id']=='relay')['value']==('等待上游 · 禁止蜂窝回退' if policy=='wifi-only' else '等待上游 · 允许蜂窝回退')
+ data['relay.status'].update(active=True,state='CONNECTED',health='ONLINE',health_age_seconds=12)
+ r=call('state');rows=next(s['items'] for s in r['sections'] if s['id']=='wifi')
+ health=next(x for x in rows if x['id']=='relay-health')
+ assert 'HTTP 探测通过' in health['value'] and '12 秒前' in health['value']
+ assert '不证明 HTTPS' in health['reason']
+ data['relay.profiles']={'ok':True,'networks':[{'id':'44656d6f-WPA2-2','ssid':'Demo','security':'WPA2','band':2,'priority':3}]}
+ r=call('wifi.relay.profiles');assert r['picker']['choices'][0]['args']['id']=='44656d6f-WPA2-2'
+ r=call('wifi.relay.profile',{'id':'44656d6f-WPA2-2'});assert len(r['picker']['choices'])==2 and r['picker']['confirm']
+ data['relay.status']['enabled']=False
+ r=call('wifi.relay.profile',{'id':'44656d6f-WPA2-2'});assert len(r['picker']['choices'])==3
+ assert not call('wifi.relay.profile',{'id':'missing'})['ok']
+ for op in ['connect','prefer','forget']:assert call('wifi.relay.manage',{'id':'44656d6f-WPA2-2','operation':op})['ok']
+ assert not call('wifi.relay.manage',{'id':'44656d6f-WPA2-2','operation':'exec'})['ok']
  data['relay.scan']['networks']=[dict(args,frequency=5260,signal=-40)]
  r=call('wifi.relay.scan');assert not r['ok'] and 'DFS' in r['message'] and '36' in r['message']
  data['relay.scan']['networks']=[]

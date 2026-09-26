@@ -2,7 +2,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 mkdir -p build/tests
-for source in tests/test-theme.c tests/test-menu-layout.c tests/test-advanced-control.c tests/test-radio-tools.c tests/test-charge.c tests/test-power-role.c tests/test-web-policy.c tests/test-standby-policy.c tests/test-relay.c;do
+for source in tests/test-theme.c tests/test-menu-layout.c tests/test-advanced-control.c tests/test-radio-tools.c tests/test-charge.c tests/test-power-role.c tests/test-web-policy.c tests/test-standby-policy.c tests/test-relay.c tests/test-network-diagnostics.c;do
  name=$(basename "$source" .c)
  cc -O1 -I panel -I panel/vendor "$source" panel/vendor/cJSON.c -lm -o "build/tests/$name"
  "build/tests/$name"

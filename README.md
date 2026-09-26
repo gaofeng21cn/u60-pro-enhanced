@@ -2,7 +2,7 @@
 
 为中兴 U60 Pro（MU5250）国行 **B28 / B31** 提供原生小屏界面、原厂网页增强、Clash/Mihomo、Tailscale、Wi-Fi 接力与 USB 网口管理。保留原厂固件和管理页，双击电源键可切换界面。
 
-**当前版本：[v0.1.11-experimental](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.11-experimental)**。这是实验版：支持固件检查和设备身份绑定，不代表全部网络与硬件组合已经验收。安装前请阅读[验证范围](docs/VALIDATION.md)。macOS 数据线直连默认继续使用 RNDIS + TetherKit；内核 NCM 只保留维护试运行入口，尚未发布为免安装能力。
+**当前版本：[v0.1.12-experimental](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.12-experimental)**。这是实验版：支持固件检查和设备身份绑定，不代表全部网络与硬件组合已经验收。安装前请阅读[验证范围](docs/VALIDATION.md)。Mac 数据线直连按“原生 NCM → TetherKit 降级”的顺序推进；原生 USB 网络尚未完成实机发布验收，当前用户能力仍保持关闭。
 
 ## 先确认你的设备
 
@@ -18,14 +18,14 @@
 
 ## 下载与准备
 
-下载本仓库 Release 中的 `u60-pro-enhanced-v0.1.11-experimental.tar.gz` 和 `SHA256SUMS.txt`，不要使用 GitHub 自动生成的 Source code 压缩包作为安装包。上游 B28 包不能用于 B31。
+下载本仓库 Release 中的 `u60-pro-enhanced-v0.1.12-experimental.tar.gz` 和 `SHA256SUMS.txt`，不要使用 GitHub 自动生成的 Source code 压缩包作为安装包。上游 B28 包不能用于 B31。
 
 macOS 示例（Linux 将 `shasum -a 256` 换成 `sha256sum`）：
 
 ```sh
 shasum -a 256 -c SHA256SUMS.txt
-tar -xzf u60-pro-enhanced-v0.1.11-experimental.tar.gz
-cd u60-pro-enhanced-v0.1.11-experimental
+tar -xzf u60-pro-enhanced-v0.1.12-experimental.tar.gz
+cd u60-pro-enhanced-v0.1.12-experimental
 adb devices
 python3 prepare.py
 ```
@@ -53,9 +53,9 @@ python3 deploy-from-computer.py start
 
 ```sh
 adb shell /etc/init.d/u60-web stop
-python3 prepare.py --output ../u60-prepared-private-v018
+python3 prepare.py --output ../u60-prepared-private-v012
 adb shell /etc/init.d/u60-web start
-cd ../u60-prepared-private-v018
+cd ../u60-prepared-private-v012
 python3 deploy-from-computer.py upgrade-check
 python3 deploy-from-computer.py upgrade
 ```
@@ -71,7 +71,7 @@ python3 deploy-from-computer.py upgrade
 - **Clash/Mihomo**：先执行 `adb shell sh /data/u60-panel/setup-clash.sh` 初始化本机配置，再在网页添加自己的 Mihomo proxy-provider 订阅、选择节点并开启代理。以“实际代理状态”为准；核心运行不等于流量已接管。当前代理覆盖 IPv4 TCP 与 DNS，UDP 443 拒绝以促使 TCP 回退，其他 UDP 与 IPv6 不宣称代理。
 - **Tailscale**：执行 `adb shell sh /data/u60-panel/setup-tailscale.sh`，在自己的浏览器完成登录。内网访问还需实际路由发布、后台批准及 ACL/Grant，不能只看本机在线。
 
-若节点握手失败且设备时间异常，参考[原厂时间与代理校时](docs/INSTALL.md#原厂时间与代理校时)。新配置默认启用核心内部 NTP；已有配置需显式迁移，系统时钟不改。
+若节点握手失败且设备时间异常，参考[原厂时间与代理校时](docs/INSTALL.md#原厂时间与代理校时)。新配置默认使用直接 IPv4 校时；旧默认 `time.apple.com` 可用 `setup-clash.sh --repair-ntp` 修复，自定义配置不会被升级自动覆盖，系统时钟不改。
 
 详细步骤见[使用说明](docs/USAGE.md)。不要把管理端口映射到公网，不在 Issue 中发送密码、订阅、设备标识或私有安装目录。
 
@@ -81,18 +81,26 @@ python3 deploy-from-computer.py upgrade
 |---|---|
 | U60 → USB 网卡 → 网线 → 电脑 | 选择 **LAN**，给下游供网；LAN 增加以下驱动的实验性适配： `r8152`、`cdc_ether`、`cdc_ncm`、`aqc111` 与 ASIX 驱动；AUTO 上游目前只对已验证的 AX88179（`0b95:1790`、`ax_usb_nic`）开放 |
 | 上级路由器 → 网线 → USB 网卡 → U60 | 选择 **AUTO**，获取有线上游地址；断线可回蜂窝。AUTO 不会把“没有 DHCP”猜成 LAN |
-| U60 → USB 数据线 → Mac | 默认保持原厂 RNDIS；Mac 使用仓库附带的 `macos/u60-rndis.sh` 自动安装/检查/启动 TetherKit，取得 `feth` 虚拟网卡后按需启用 DHCP 或默认路由；不切换 U60 USB 组合，不影响 ADB |
-| 上游 Wi-Fi → U60 → 自身热点或 LAN | 支持单个 2.4G／非 DFS 5G 上游、保存网络与同频段重连；不是 Mesh，不聚合两条 Wi-Fi 带宽 |
+| U60 → USB 数据线 → Mac | 优先补齐并验证原生 NCM composition；在 NCM 完成实机验收前保持默认 RNDIS。只有原生 NCM 被设备验收证明无法安全成立后，才使用 `macos/u60-rndis.sh` 的 TetherKit 降级方案 |
+| 上游 Wi-Fi → U60 → 自身热点或 LAN | 同时连接一个 2.4G／非 DFS 5G 上游，最多保存 8 个网络，按首选顺序重连；不是 Mesh，不聚合两条 Wi-Fi 带宽 |
 
 Wi-Fi 接力支持 **2.4GHz 和非 DFS 的 5GHz 上游**，并非仅限 2.4GHz。5GHz 支持信道 36/40/44/48、149/153/157/161/165；找不到 5GHz 网络时先检查上游信道。
 
 ### Mac 数据线直连
 
-macOS 没有原生 RNDIS 网卡驱动。Release 包的 `macos/u60-rndis.sh` 使用上游 [TetherKit](https://github.com/XiaoMiku01/TetherKit) 用户态桥接，不安装内核扩展、不降低 SIP，也不修改 U60 的 USB gadget。首次使用：
+路线顺序固定为：先实现并验证原生 NCM，再考虑 TetherKit 降级。候选试运行尚未出现 Mac 原生网卡，且 ADB 未能自动恢复；设备经现场重启恢复原厂 RNDIS＋ADB。当前已封锁试运行与底层切换入口，不能把代码存在当成可用能力，也不能据此判定原生 NCM 不可实现。恢复保护和独立管理通道验证通过之前，不再进行设备 USB 切换。
+
+macOS 原生支持 CDC NCM，但不支持 U60 当前的 RNDIS。NCM composition 验收完成前，Release 包只把上游 [TetherKit](https://github.com/XiaoMiku01/TetherKit) 作为保留的降级材料，不把它当作当前主路线；它不安装内核扩展、不降低 SIP，也不修改 U60 的 USB gadget。只有 NCM 被设备验收证明无法安全成立后，才按下列方式启用降级方案：
 
 ```sh
-cd u60-pro-enhanced-v0.1.11-experimental
+cd u60-pro-enhanced-v0.1.12-experimental
 sh macos/u60-rndis.sh install
+sh macos/u60-rndis.sh gui
+```
+
+首次打开 TetherKit 时，在窗口中安装一次特权组件并输入 macOS 管理员密码；之后由官方 helper 维护 USB 网卡，用户只需在 GUI 中连接 U60 并选择 DHCP。该路径不需要每次重复输入密码，也不会触碰 U60 的 USB 组合或 ADB。命令行仅用于诊断：
+
+```sh
 sh macos/u60-rndis.sh doctor
 sh macos/u60-rndis.sh start
 sh macos/u60-rndis.sh status
@@ -104,7 +112,7 @@ Wi-Fi 接力入口为“小屏：网络 → Wi-Fi → 连接上游 Wi-Fi；网�
 
 停止中继：总览点“中继管理 / 停止”，或“网络 → Wi-Fi”顶部点“停止 Wi-Fi 中继”；不会忘记上游密码。
 
-接力可选择开机连接、允许/禁止蜂窝回退，并在关闭后忘记保存的网络。禁止回退会在接力开启期间阻断本机代理和下游经蜂窝的 IPv4/IPv6 数据包，也可能使蜂窝远程管理断开；它不关闭基带，不保证整机零流量。关闭接力恢复原出口。当前只保存一个上游；多网络优先级、企业认证、DFS 与完整认证门户流程未提供。详见[Wi-Fi 接力说明](docs/WIFI-RELAY.md)。
+接力可选择开机连接、允许/禁止蜂窝回退，并在关闭后忘记保存的网络。禁止回退会在接力开启期间阻断本机代理和下游经蜂窝的 IPv4/IPv6 数据包，也可能使蜂窝远程管理断开；它不关闭基带，不保证整机零流量。关闭接力恢复原出口。最多保存 8 个上游，可立即连接、设为首选或单独忘记；断线后按优先级和信号尝试可用网络，健康连接不抢切。企业认证、DFS 与完整认证门户登录仍未提供。详见[Wi-Fi 接力说明](docs/WIFI-RELAY.md)。小屏“网络 → 网络诊断”与网页“工具与诊断”提供[一键网络自检](docs/NETWORK-DIAGNOSTICS.md)，分开检查路由、地址、DNS、默认出口和 Clash 的 HTTPS。
 
 ## 恢复与问题反馈
 

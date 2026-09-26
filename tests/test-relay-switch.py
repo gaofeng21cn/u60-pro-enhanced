@@ -45,8 +45,10 @@ esac
    elif cmd.startswith('SET_NETWORK ') and ' freq_list ' in cmd:state['frequency']=int(cmd.split()[-1])
    elif cmd=='STATUS':
     pending=state.get('association_pending',0);state['association_pending']=max(0,pending-1)
-    response='wpa_state='+('COMPLETED' if state['completed'] and not pending else 'ASSOCIATING')+'\nfreq='+str(state['frequency'])+'\n'
-   elif cmd=='SAVE_CONFIG':state['saved']=True
+    response='wpa_state='+('COMPLETED' if state['completed'] and not pending else 'ASSOCIATING')+'\nfreq='+str(state['frequency'])+'\nid=0\n'
+   elif cmd=='SAVE_CONFIG':
+    state['saved']=True
+    (d/'private/wpa.conf').write_text('ctrl_interface='+str(d/'ctrl')+'\nupdate_config=1\nnetwork={\n ssid="Synthetic upstream"\n psk="synthetic-test-only"\n key_mgmt=WPA-PSK\n freq_list='+str(state['frequency'])+'\n}\n')
    try:sock.sendto(response.encode(),addr)
    except OSError:pass
  thread=threading.Thread(target=serve);thread.start()
@@ -62,19 +64,23 @@ esac
   reset();state['scan_fail']=True;assert not run('scan')['ok'];assert enabled.exists() and 'off' not in calls()
   args={'ssid':'Synthetic upstream','password':'synthetic-test-only','security':'WPA2','bssid':'00:11:22:33:44:55','frequency':5220}
   reset();assert not run('connect',dict(args,password='short'))['ok'];assert not calls() and enabled.exists()
-  reset();assert run('connect',args)['ok'];assert calls()==['pause','prepare','align','enable'] and state['saved'] and enabled.exists()
-  reset();state['completed']=False;r=run('connect',args);assert not r['ok'];assert calls()==['pause','prepare','align','pause','on'] and not state['saved'] and enabled.exists()
+  old='ctrl_interface='+str(d/'ctrl')+'\nupdate_config=1\nnetwork={\n ssid="Other saved"\n psk="keep-this-synthetic-key"\n key_mgmt=WPA-PSK\n id_str="u60-band-2"\n priority=50\n}\n'
+  (d/'private/wpa.conf').write_text(old)
+  reset();assert run('connect',args)['ok'];assert calls()==['pause','prepare','align','enable'] and not state['saved'] and enabled.exists() and len(run('profiles')['networks'])==2 and 'keep-this-synthetic-key' in (d/'private/wpa.conf').read_text()
+  preserved=(d/'private/wpa.conf').read_bytes()
+  reset();state['completed']=False;r=run('connect',args);assert not r['ok'];assert calls()==['pause','prepare','align','pause','on'] and not state['saved'] and enabled.exists();assert (d/'private/wpa.conf').read_bytes()==preserved
   reset();(d/'fail-prepare').touch();assert not run('connect',args)['ok'];assert calls()==['pause','prepare','pause','on'] and not state['saved'] and enabled.exists()
   (d/'fail-prepare').unlink();reset();requests.clear()
+  state['completed']=False
   state['candidates']='00:11:22:33:44:56\t5220\t-25\t[WPA2-PSK-CCMP][ESS]\tSynthetic upstream\n'
   assert not run('coordinate')['ok'];assert not calls() and not state['saved']
   state['candidates']+='00:11:22:33:44:57\t2412\t-45\t[WPA2-PSK-CCMP][ESS]\tSynthetic upstream\n00:11:22:33:44:58\t2437\t-65\t[WPA2-PSK-CCMP][ESS]\tSynthetic upstream\n'
-  state['association_pending']=2;requests.clear()
+  state['completed']=True;state['association_pending']=3;requests.clear()
   assert run('coordinate')['ok'];assert requests.count('STATUS')>=3 and requests.count('SELECT_NETWORK 0')==1;assert (d/'private/upstream-band').read_text().strip()=='2';assert calls()==['align'] and 'SET_NETWORK 0 bssid 00:11:22:33:44:57' in requests and 'SET_NETWORK 0 freq_list 2412' in requests and not state['saved']
   assert not any(x.startswith('GET_NETWORK') and x.endswith('psk') for x in requests)
-  state['legacy']=True;state['pin']='00:11:22:33:44:58';(d/'private/upstream-band').unlink();requests.clear()
+  state['association_pending']=1;state['legacy']=True;state['pin']='00:11:22:33:44:58';requests.clear()
   assert run('coordinate')['ok'];assert (d/'private/upstream-band').read_text().strip()=='2'
-  state['pin']='any';requests.clear();assert run('coordinate')['ok'];assert 'SET_NETWORK 0 freq_list 2412' in requests
+  state['association_pending']=1;state['pin']='any';requests.clear();assert run('coordinate')['ok'];assert 'SET_NETWORK 0 freq_list 2412' in requests
   enabled.unlink();assert not run('coordinate')['ok']
   print('PASS: fresh scan completion, active relay retained, invalid input inert, switching and failed-switch recovery')
  finally:

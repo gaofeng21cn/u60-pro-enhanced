@@ -1,6 +1,13 @@
 #!/bin/sh
 # NCM candidate transaction. It is intentionally separate from the qualified
 # RNDIS/ECM observer and is never started by boot or the normal UI.
+# Quarantine: the device trial lost ADB and its rollback did not recover it.
+# Keep diagnostics available, but reject every mutation before invoking tools.
+# There is deliberately no environment-variable or marker-file override.
+case "${1:-status}" in
+ status) ;;
+ *) printf '%s\n' '{"ok":false,"message":"NCM 试运行已停用：ADB 恢复保护尚未验证，保持原厂 USB 组合"}'; exit 1;;
+esac
 set -u
 umask 077
 
@@ -12,6 +19,9 @@ IP=${USB_IP:-ip}
 SELF=$(readlink -f "$0")
 TAB=$(printf '\t')
 ADB_FFS=/dev/usb-ffs/adb
+USB_COMPOSITION=${USB_COMPOSITION:-/sbin/usb_composition}
+USB_NCM_COMPOSITION=${USB_NCM_COMPOSITION:-/data/u60-panel/usb-ncm-composition.sh}
+TRIAL_INIT=${TRIAL_INIT:-/etc/init.d/u60-ncm-trial}
 
 fail() { printf '{"ok":false,"message":"%s"}\n' "$1"; exit 1; }
 valid_name() { case "$1" in ''|*[!a-zA-Z0-9._-]*) return 1;; esac; }
@@ -21,9 +31,10 @@ read_attr() { cat "$1" 2>/dev/null || true; }
 
 owner_busy() {
  [ -e /tmp/usb_bind_in_progress ] && return 0
- command -v pidof >/dev/null 2>&1 || return 0
+ command -v pidof >/dev/null 2>&1 || true
  pidof zte_ubus_bsp_usb >/dev/null 2>&1 && return 0
- ps | grep -E '[z]te_usb_switch|[u]sb_composition' >/dev/null 2>&1 && return 0
+ ps | grep -E '[ /]zte_usb_switch( |$)' >/dev/null 2>&1 && return 0
+ ps | grep -E '[ /]usb_composition( |$)' >/dev/null 2>&1 && return 0
  return 1
 }
 
@@ -70,6 +81,21 @@ restore() {
   [ -d "$G/configs/$cn" ] || mkdir -p "$G/configs/$cn" || return 1
   ln -s "$target" "$G/configs/$cn/$fn" || return 1
  done < "$R/snapshot/links"
+ for attr in idVendor idProduct bcdUSB bcdDevice bDeviceClass; do
+  [ -f "$R/snapshot/$attr" ] || continue
+  cat "$R/snapshot/$attr" > "$G/$attr" || return 1
+ done
+ for attr in "$R"/snapshot/config-MaxPower "$R"/snapshot/config-bmAttributes; do
+  [ -f "$attr" ] || continue
+  name=${attr##*/}; name=${name#config-}
+  cat "$attr" > "$G/configs/c.1/$name" || return 1
+ done
+ for attr in "$R"/snapshot/attrs/strings/0x409/* "$R"/snapshot/attrs/configs/c.1/strings/0x409/* "$R"/snapshot/attrs/os_desc/*; do
+  [ -f "$attr" ] || continue
+  rel=${attr#"$R/snapshot/attrs/"}
+  [ -f "$G/$rel" ] || return 1
+  cat "$attr" > "$G/$rel" || return 1
+ done
  printf '%s\n' "$udc" > "$G/UDC" || return 1
  [ "$(read_attr "$G/UDC")" = "$udc" ] || return 1
  : > "$R/readback-links"
@@ -116,32 +142,46 @@ do_start() {
  mkdir -p "$R" || fail '无法建立 NCM 事务目录'
  exec 9>"$R/lock"; flock -n 9 || fail 'USB 操作正在执行'
  snapshot || fail '无法保存完整 USB 组合'
+ [ -x "$USB_COMPOSITION" ] || fail '原厂 USB owner 不可用'
+ [ -x "$USB_NCM_COMPOSITION" ] || fail '908C NCM composition 尚未安装'
  adb=false
  for f in "$G"/configs/c.*/f*; do case "$(readlink "$f" 2>/dev/null || true)" in */functions/ffs.adb) adb=true;; esac; done
  [ "$adb" = true ] || fail '当前组合没有 ADB'
  printf pending > "$R/state"; rm -f "$R/confirmed" "$R/cancel"
- nohup sh "$SELF" supervise </dev/null >"$R/log" 2>&1 &
+ # The supervisor is a separate procd instance and must acquire the lock
+ # itself. Keeping the caller's descriptor open here would make a correct
+ # procd supervisor reject its own transaction.
+ exec 9>&-
+ if [ -x "$TRIAL_INIT" ]; then
+  "$TRIAL_INIT" start || fail '无法启动 NCM procd 监督服务'
+ else
+  nohup sh "$SELF" supervise </dev/null >"$R/log" 2>&1 &
+ fi
  printf '%s\n' '{"ok":true,"message":"NCM 试运行已启动；必须先验证 Mac 枚举、DHCP、HTTPS 和 ADB 恢复"}'
 }
 
 supervise() {
- # In start(), fd 9 is inherited by this detached child. Reopening the file
- # would drop the parent's advisory lock and allow a second writer.
+ # procd starts this process independently of the shell that requested the
+ # trial, so it cannot rely on an inherited descriptor. Hold the transaction
+ # lock for the whole supervised window; restore waits for this lock before
+ # rebuilding the factory composition.
+ exec 9>"$R/lock" || exit 1
  flock -n 9 || exit 1
  [ "$(state)" = pending ] || exit 1
  trap 'restore || printf failed > "$R/state"' EXIT
  sleep 2
  owner_busy && fail '原厂 USB owner 发生并发切换'
- printf '\n' > "$G/UDC" || fail '无法解绑 UDC'
- for link in "$G"/configs/c.1/f*; do [ -L "$link" ] && rm "$link" || true; done
- ln -s ../../../../usb_gadget/g1/functions/ncm.0 "$G/configs/c.1/f1" || fail '无法加入 NCM'
- while IFS="$TAB" read -r cn fn target; do
-  [ "$cn" = c.1 ] && [ "$fn" = f1 ] && continue
-  [ "$cn" = c.1 ] || continue
-  ln -s "$target" "$G/configs/$cn/$fn" || fail '无法恢复原厂 function'
- done < "$R/snapshot/links"
- printf '%s\n' "$(read_attr "$R/snapshot/udc")" > "$G/UDC" || fail '无法重新绑定 UDC'
- iface=$(ncm_iface) || fail 'NCM 网口未出现'
+ # The factory composition directory is read-only on B31. The project-owned
+ # composition uses the same ConfigFS owner contract without touching firmware.
+ "$USB_NCM_COMPOSITION" n n y || fail 'NCM composition 未能切换'
+ iface=''
+ n=0
+ while [ "$n" -lt 20 ]; do
+  iface=$(ncm_iface 2>/dev/null || true)
+  [ -n "$iface" ] && break
+  sleep 1; n=$((n+1))
+ done
+ [ -n "$iface" ] || fail 'NCM 网口未出现'
  "$IP" link set dev "$iface" master br-lan || fail 'NCM 未加入内网'
  "$IP" link set dev "$iface" up || fail 'NCM 网口无法启动'
  n=0
@@ -168,7 +208,13 @@ do_confirm() {
 
 do_restore() {
  [ -d "$R/snapshot" ] || fail '没有 NCM 试运行快照'
- touch "$R/cancel"; exec 8>"$R/lock"; flock -w 8 8 || fail 'NCM 试运行尚未结束'
+ touch "$R/cancel"
+ [ ! -x "$TRIAL_INIT" ] || "$TRIAL_INIT" stop >/dev/null 2>&1 || true
+ n=0; while [ "$n" -lt 10 ]; do
+  exec 8>"$R/lock"; flock -n 8 && break
+  sleep 1; n=$((n + 1))
+ done
+ flock -n 8 || fail 'NCM 试运行尚未结束'
  restore || fail 'NCM 恢复原厂组合失败'
  rm -f "$R/confirmed" "$R/cancel"
  printf '%s\n' '{"ok":true,"message":"已恢复原厂 RNDIS、ADB 和诊断组合"}'

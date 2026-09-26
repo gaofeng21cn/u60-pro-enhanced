@@ -64,16 +64,22 @@ BACKUP="/data/u60-upgrade-backups/$ID"
 [ ! -e "$BACKUP" ] || fail 'Upgrade backup already exists; inspect it before retrying'
 STAGE="/data/u60-packages/upgrade-$ID"
 [ ! -e "$STAGE" ] || fail 'Staging directory already exists'
+NCM_SOURCE="payload/data/u60-panel/usb-ncm-composition.sh"
+[ -f "$NCM_SOURCE" ] || fail 'NCM composition is missing from this package'
 
 # Plan entries are relative to /data so one list drives backup, install and
 # verification. The boot hook is listed separately as /data/u60-panel/portable-boot.sh.
 PLAN=$(cd payload/data && find . -type f | sed 's|^\./||' | sort | while IFS= read -r rel; do
  is_state "$rel" && continue
- [ -e "/data/$rel" ] || fail "Unexpected new file in package: $rel"
+ if [ ! -e "/data/$rel" ]; then
+  [ "$rel" = u60-panel/usb-ncm-composition.sh ] || [ "$rel" = u60-panel/usb-ncm-trial.sh ] || fail "Unexpected new file in package: $rel"
+ fi
  printf '%s\n' "$rel"
 done)
 INIT_PLAN=$(cd payload/init && find . -type f | sed 's|^\./||' | sort | while IFS= read -r rel; do
- [ -e "/etc/init.d/$rel" ] || fail "Unexpected new init service in package: $rel"
+ if [ ! -e "/etc/init.d/$rel" ]; then
+  [ "$rel" = u60-ncm-trial ] || fail "Unexpected new init service in package: $rel"
+ fi
  printf '%s\n' "$rel"
 done)
 BOOT_SRC=payload/boot/portable-boot.sh
@@ -124,18 +130,27 @@ chmod 700 /data/u60-upgrade-backups "$BACKUP" "$STAGE"
 restore_tree() {
  while IFS= read -r rel; do
   [ -n "$rel" ] || continue
-  [ -f "$BACKUP/data/$rel" ] || return 1
-  if [ "$(sha256sum "$BACKUP/data/$rel" | cut -d ' ' -f 1)" != "$(sha256sum "/data/$rel" | cut -d ' ' -f 1)" ];then
-   cp -p "$BACKUP/data/$rel" "/data/$rel.restore" && mv "/data/$rel.restore" "/data/$rel" || return 1
+  if [ -f "$BACKUP/data/$rel" ]; then
+   if [ ! -f "/data/$rel" ] || [ "$(sha256sum "$BACKUP/data/$rel" | cut -d ' ' -f 1)" != "$(sha256sum "/data/$rel" | cut -d ' ' -f 1)" ];then
+    cp -p "$BACKUP/data/$rel" "/data/$rel.restore" && mv "/data/$rel.restore" "/data/$rel" || return 1
+   fi
+  elif [ -f "$BACKUP/data-missing/$rel" ]; then
+   rm -f "/data/$rel" || return 1
+  else
+   return 1
   fi
  done <<EOF
 $PLAN
 EOF
  while IFS= read -r rel; do
   [ -n "$rel" ] || continue
-  [ -f "$BACKUP/init/$rel" ] || return 1
-  cp -p "$BACKUP/init/$rel" "/etc/init.d/$rel"
-  chmod 700 "/etc/init.d/$rel"
+  if [ -f "$BACKUP/init/$rel" ]; then
+   cp -p "$BACKUP/init/$rel" "/etc/init.d/$rel" || return 1
+  elif [ -f "$BACKUP/init-missing/$rel" ]; then
+   rm -f "/etc/init.d/$rel" || return 1
+  else
+   return 1
+  fi
  done <<EOF
 $INIT_PLAN
 EOF
@@ -177,15 +192,28 @@ backup_one() {
  cp -p "$2" "$BACKUP/$1"
  printf '%s  %s\n' "$(sha256sum "$BACKUP/$1" | cut -d ' ' -f 1)" "$1" >> "$BACKUP/BACKUP-SHA256SUMS"
 }
+backup_missing() {
+ mkdir -p "$(dirname "$BACKUP/$1")"
+ : > "$BACKUP/$1"
+ printf '%s  %s\n' "$(sha256sum "$BACKUP/$1" | cut -d ' ' -f 1)" "$1" >> "$BACKUP/BACKUP-SHA256SUMS"
+}
 while IFS= read -r rel; do
  [ -n "$rel" ] || continue
- backup_one "data/$rel" "/data/$rel"
+ if [ -f "/data/$rel" ]; then
+  backup_one "data/$rel" "/data/$rel"
+ else
+  backup_missing "data-missing/$rel"
+ fi
 done <<EOF
 $PLAN
 EOF
 while IFS= read -r rel; do
  [ -n "$rel" ] || continue
- backup_one "init/$rel" "/etc/init.d/$rel"
+ if [ -f "/etc/init.d/$rel" ]; then
+  backup_one "init/$rel" "/etc/init.d/$rel"
+ else
+  backup_missing "init-missing/$rel"
+ fi
 done <<EOF
 $INIT_PLAN
 EOF
@@ -198,7 +226,7 @@ CHANGED=1
 install_one() {
  dst=$1; src=$2; mode=$3
  # Preserve the inode of unchanged live executables, sockets' owners and assets.
- if [ "$(sha256sum "$dst" | cut -d ' ' -f 1)" = "$(sha256sum "$src" | cut -d ' ' -f 1)" ];then
+ if [ -f "$dst" ] && [ "$(sha256sum "$dst" | cut -d ' ' -f 1)" = "$(sha256sum "$src" | cut -d ' ' -f 1)" ];then
   chmod "$mode" "$dst";return 0
  fi
  cp "$src" "$dst.next"

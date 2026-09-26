@@ -14,7 +14,7 @@ secret: ""
 # never compete with the factory NITZ/clock owner or change its display timezone.
 ntp:
   enable: true
-  server: time.apple.com
+  server: 162.159.200.1
   port: 123
   interval: 30
   dialer-proxy: DIRECT

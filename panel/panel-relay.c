@@ -9,6 +9,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/stat.h>
+#include <sys/file.h>
 #include <sys/wait.h>
 #include <sys/resource.h>
 #include <arpa/inet.h>
@@ -65,20 +66,23 @@ static int fresh_scan(void){
 }
 static int keyval(const char *b,const char*k,char*out,size_t cap){size_t n=strlen(k);for(const char*p=b;*p;){const char*e=strchr(p,'\n');if(!e)e=p+strlen(p);if((size_t)(e-p)>n&&!strncmp(p,k,n)&&p[n]=='='){size_t len=e-p-n-1;if(len>=cap)return 0;memcpy(out,p+n+1,len);out[len]=0;return 1;}p=*e?e+1:e;}out[0]=0;return 0;}
 static int hexval(int c){return c>='0'&&c<='9'?c-'0':c>='a'&&c<='f'?c-'a'+10:c>='A'&&c<='F'?c-'A'+10:-1;}
-static int decode_ssid(const char*in,char*out){size_t n=0;while(*in){unsigned char ch=*in++;if(ch=='\\'&&*in){if(in[0]=='x'&&in[1]&&in[2]&&hexval(in[1])>=0&&hexval(in[2])>=0){ch=(hexval(in[1])<<4)|hexval(in[2]);in+=3;}else if(*in=='\\'){ch='\\';in++;}else return 0;}if(ch<32||ch==127||n>=32)return 0;out[n++]=ch;}out[n]=0;return n>0;}
+static int decode_ssid(const char*in,char*out){size_t n=0;while(*in){unsigned char ch=*in++;if(ch=='\\'&&*in){if(in[0]=='x'&&in[1]&&in[2]&&hexval(in[1])>=0&&hexval(in[2])>=0){ch=(hexval(in[1])<<4)|hexval(in[2]);in+=3;}else if(*in=='\\'||*in=='"'){ch=*in++;}else return 0;}if(ch<32||ch==127||n>=32)return 0;out[n++]=ch;}out[n]=0;return n>0;}
 static int ssid_valid(const char*s){size_t n=strlen(s);if(!n||n>32)return 0;for(size_t i=0;i<n;i++)if((unsigned char)s[i]<32||(unsigned char)s[i]==127)return 0;return 1;}
 static int mac_valid(const char*s){if(strlen(s)!=17)return 0;for(int i=0;i<17;i++)if(i%3==2?s[i]!=':':hexval(s[i])<0)return 0;return 1;}
 static const char *security(const char*f){if(strstr(f,"EAP"))return "unsupported";if(strstr(f,"PSK"))return "WPA2";if(strstr(f,"SAE"))return "WPA3";if(strstr(f,"WEP")||strstr(f,"RSN")||strstr(f,"WPA"))return "unsupported";return "OPEN";}
 static cJSON *parse_scan(char*b){cJSON*a=cJSON_CreateArray();char*save=NULL,*line=strtok_r(b,"\n",&save);while((line=strtok_r(NULL,"\n",&save))&&cJSON_GetArraySize(a)<96){char*col[5];col[0]=line;int n=1;for(char*p=line;*p&&n<5;p++)if(*p=='\t'){*p=0;col[n++]=p+1;}if(n!=5||!mac_valid(col[0]))continue;char ssid[33];if(!decode_ssid(col[4],ssid))continue;int freq=atoi(col[1]),signal=atoi(col[2]);if(freq<2400||freq>7125||signal>0||signal< -150)continue;cJSON*j=cJSON_CreateObject();cJSON_AddStringToObject(j,"ssid",ssid);cJSON_AddStringToObject(j,"bssid",col[0]);cJSON_AddStringToObject(j,"security",security(col[3]));cJSON_AddNumberToObject(j,"frequency",freq);cJSON_AddNumberToObject(j,"signal",signal);cJSON_AddItemToArray(a,j);}return a;}
 #include "panel-relay-radio.h"
 static cJSON *scan(void){if(!helper("prepare")){helper("scan-stop");return result(0,"暂不能扫描。请确认 5G 热点已开启、访客热点已关闭、USB 为 LAN；若开关失败，请先恢复热点。");}if(!fresh_scan()){helper("scan-stop");return result(0,"无线扫描未完成，请稍后重试");}char b[32768];cJSON*net=ctrl("SCAN_RESULTS",b,sizeof(b))?parse_scan(b):NULL;helper("scan-stop");if(!net)return result(0,"扫描结果读取失败");cJSON*j=result(1,"请选择上游Wi-Fi");cJSON_AddItemToObject(j,"networks",net);return j;}
-static cJSON *connect_ap(const cJSON*a){
+static cJSON *connect_ap_inner(const cJSON*a,const struct relay_profiles*previous){
  const char *ssid=str(a,"ssid"),*pass=str(a,"password"),*sec=str(a,"security"),*bssid=str(a,"bssid");size_t pn=strlen(pass);
  if(!ssid_valid(ssid)||(*bssid&&!mac_valid(bssid)))return result(0,"Wi-Fi名称或地址无效");
  if(strcmp(sec,"OPEN")&&strcmp(sec,"WPA2")&&strcmp(sec,"WPA3"))return result(0,"当前支持开放网络、WPA2/WPA3个人网络");
  if(strcmp(sec,"OPEN")&&(pn<8||pn>63))return result(0,"密码需8至63位");for(size_t i=0;i<pn;i++)if((unsigned char)pass[i]<32||(unsigned char)pass[i]>126)return result(0,"密码包含不支持的字符");
  const cJSON*fv=cJSON_GetObjectItemCaseSensitive(a,"frequency");int frequency=cJSON_IsNumber(fv)?fv->valueint:0;
  if(!relay_frequency(frequency))return result(0,"请选择2.4G或非DFS的5G上游信道");
+ struct relay_profile wanted={0};snprintf(wanted.ssid,sizeof(wanted.ssid),"%s",ssid);snprintf(wanted.security,sizeof(wanted.security),"%s",sec);wanted.band=frequency<3000?2:5;profile_identity(&wanted);
+ int exists=0;for(int i=0;i<previous->count;i++)if(!strcmp(previous->entries[i].id,wanted.id))exists=1;
+ if(previous->count>=PROFILE_MAX&&!exists)return result(0,"最多保存 8 个上游，请先忘记一个网络");
  int resume=access(PRIVATE "/enabled",F_OK)==0;
  const char*stage="无线准备失败，请先确认 5G 热点可开启";
  char b[4096],cmd[512],quoted[132],hex[65];int id=-1;
@@ -94,10 +98,26 @@ static cJSON *connect_ap(const cJSON*a){
  if(strcmp(sec,"OPEN")){size_t at=0;quoted[at++]='"';for(size_t i=0;i<pn;i++){if(pass[i]=='"'||pass[i]=='\\')quoted[at++]='\\';quoted[at++]=pass[i];}quoted[at++]='"';quoted[at]=0;snprintf(cmd,sizeof(cmd),"SET_NETWORK %d %s %s",id,!strcmp(sec,"WPA3")?"sae_password":"psk",quoted);int ok=ack(cmd);memset(quoted,0,sizeof(quoted));memset(cmd,0,sizeof(cmd));if(!ok)goto fail;}
  if(!strcmp(sec,"WPA3")){snprintf(cmd,sizeof(cmd),"SET_NETWORK %d ieee80211w 2",id);if(!ack(cmd))goto fail;}
  snprintf(cmd,sizeof(cmd),"SET_NETWORK %d freq_list %d",id,frequency);if(!ack(cmd))goto fail;stage="热点信道切换失败，已尝试恢复；请换用 2.4G 上游或原热点信道";if(!align_radio(frequency))goto fail;
+ snprintf(cmd,sizeof(cmd),"SET_NETWORK %d id_str \"u60-band-%d\"",id,frequency<3000?2:5);if(!ack(cmd))goto fail;
  snprintf(cmd,sizeof(cmd),"SELECT_NETWORK %d",id);if(!ack(cmd))goto fail;
  stage="关联未完成，请核对密码、信号和上游加密方式";
- for(int n=0;n<CONNECT_TRIES;n++){char state[64];if(ctrl("STATUS",b,sizeof(b))&&keyval(b,"wpa_state",state,sizeof(state))&&!strcmp(state,"COMPLETED")){char actual[32];if(!keyval(b,"freq",actual,sizeof(actual))||atoi(actual)!=frequency)goto fail;if(!ack("SAVE_CONFIG"))goto fail;save_band(frequency);if(!helper("enable"))return result(0,"新网络已保存，但中继服务未启动，请重试开启");return result(1,"已连接并保存，正在获取上游地址；以中继状态为准");}sleep(1);}
+ for(int n=0;n<CONNECT_TRIES;n++){char state[64];if(ctrl("STATUS",b,sizeof(b))&&keyval(b,"wpa_state",state,sizeof(state))&&!strcmp(state,"COMPLETED")){char actual[32];if(!keyval(b,"freq",actual,sizeof(actual))||atoi(actual)!=frequency)goto fail;/* Never let SAVE_CONFIG overwrite the credential authority. Build the
+ * single validated candidate in memory, merge, then atomically replace once. */
+ char new_config[2048],secret[132]={0};size_t q=0;
+ secret[q++]='"';for(size_t i=0;i<pn;i++){if(pass[i]=='"'||pass[i]=='\\')secret[q++]='\\';secret[q++]=pass[i];}secret[q++]='"';secret[q]=0;
+ int written=snprintf(new_config,sizeof(new_config),"ctrl_interface=" RUN "/ctrl\nupdate_config=1\nnetwork={\n\tssid=%s\n\tkey_mgmt=%s\n\tid_str=\"u60-band-%d\"\n\tfreq_list=%d\n",hex,!strcmp(sec,"OPEN")?"NONE":!strcmp(sec,"WPA3")?"SAE":"WPA-PSK",frequency<3000?2:5,frequency);
+ if(strcmp(sec,"OPEN"))written+=snprintf(new_config+written,sizeof(new_config)-(size_t)written,"\t%s=%s\n",!strcmp(sec,"WPA3")?"sae_password":"psk",secret);
+ if(!strcmp(sec,"WPA3"))written+=snprintf(new_config+written,sizeof(new_config)-(size_t)written,"\tieee80211w=2\n");
+ written+=snprintf(new_config+written,sizeof(new_config)-(size_t)written,"}\n");
+ int persisted=written>0&&(size_t)written<sizeof(new_config)&&profiles_merge(previous,new_config);memset(secret,0,sizeof(secret));memset(new_config,0,sizeof(new_config));
+ if(!persisted){stage="保存网络失败，原网络列表保留";goto fail;}
+ save_band(frequency);if(!helper("enable"))return result(0,"新网络已保存，但中继服务未启动，请重试开启");return result(1,"已连接并保存，正在获取上游地址；以中继状态为准");}sleep(1);}
  fail:memset(cmd,0,sizeof(cmd));if(id>=0){snprintf(cmd,sizeof(cmd),"REMOVE_NETWORK %d",id);ack(cmd);}helper(resume?"pause":"off");if(resume){int requested=helper("on");return result(0,requested?"新网络连接失败，已请求恢复原中继；请查看上游状态":"新网络连接失败，原中继恢复未确认；请重试开启");}return result(0,stage);
+}
+static cJSON *connect_ap(const cJSON*a){
+ struct relay_profiles*previous=calloc(1,sizeof(*previous));if(!previous)return result(0,"内存不足");
+ cJSON*r;if(!profiles_load(previous))r=result(0,"保存网络不可读，未修改凭据");else r=connect_ap_inner(a,previous);
+ memset(previous,0,sizeof(*previous));free(previous);return r;
 }
 static int ipv4(const char*s,uint32_t*out){struct in_addr a;if(inet_pton(AF_INET,s,&a)!=1)return 0;*out=ntohl(a.s_addr);return 1;}
 static cJSON *lease(const cJSON*a){
@@ -111,6 +131,7 @@ static cJSON *lease(const cJSON*a){
  cJSON*j=result(1,"VALID_LEASE");cJSON_AddNumberToObject(j,"prefix",prefix);return j;
 }
 #ifndef RELAY_TEST
-int main(int argc,char**argv){umask(077);struct rlimit lim={0,0};setrlimit(RLIMIT_CORE,&lim);if(argc!=2)return 2;cJSON*j=NULL,*a=NULL;char b[8192]={0};if(!strcmp(argv[1],"connect")||!strcmp(argv[1],"lease")){size_t n=fread(b,1,sizeof(b)-1,stdin);const char*end=NULL;if(n==sizeof(b)-1||!(a=cJSON_ParseWithOpts(b,&end,1))||!cJSON_IsObject(a))j=result(0,"无效请求");}
- if(!j){if(!strcmp(argv[1],"scan"))j=scan();else if(!strcmp(argv[1],"connect"))j=connect_ap(a);else if(!strcmp(argv[1],"coordinate"))j=coordinate();else if(!strcmp(argv[1],"lease"))j=lease(a);else j=result(0,"未知操作");}int code=!strcmp(argv[1],"coordinate")&&!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j,"ok"));char*out=cJSON_PrintUnformatted(j);puts(out?out:"{}");free(out);memset(b,0,sizeof(b));cJSON_Delete(a);cJSON_Delete(j);return code;}
+int main(int argc,char**argv){umask(077);struct rlimit lim={0,0};setrlimit(RLIMIT_CORE,&lim);if(argc!=2)return 2;cJSON*j=NULL,*a=NULL;char b[8192]={0};if(!strcmp(argv[1],"connect")||!strcmp(argv[1],"lease")||!strncmp(argv[1],"profile-",8)){size_t n=fread(b,1,sizeof(b)-1,stdin);const char*end=NULL;if(n==sizeof(b)-1||!(a=cJSON_ParseWithOpts(b,&end,1))||!cJSON_IsObject(a))j=result(0,"无效请求");}
+ int lock=-1;if(!j&&(!strcmp(argv[1],"connect")||!strcmp(argv[1],"coordinate")||!strncmp(argv[1],"profile-",8))){lock=open(PRIVATE "/profiles.lock",O_CREAT|O_RDWR|O_CLOEXEC|O_NOFOLLOW,0600);if(lock<0||flock(lock,LOCK_EX|LOCK_NB))j=result(0,"网络操作正在执行，请稍后重试");}
+ if(!j){if(!strcmp(argv[1],"profiles"))j=profiles_public();else if(!strcmp(argv[1],"profile-connect")||!strcmp(argv[1],"profile-prefer")||!strcmp(argv[1],"profile-forget"))j=profile_action(argv[1],a);else if(!strcmp(argv[1],"scan"))j=scan();else if(!strcmp(argv[1],"connect"))j=connect_ap(a);else if(!strcmp(argv[1],"coordinate"))j=coordinate();else if(!strcmp(argv[1],"lease"))j=lease(a);else j=result(0,"未知操作");}int code=!strcmp(argv[1],"coordinate")&&!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j,"ok"));char*out=cJSON_PrintUnformatted(j);puts(out?out:"{}");free(out);if(lock>=0)close(lock);memset(b,0,sizeof(b));cJSON_Delete(a);cJSON_Delete(j);return code;}
 #endif

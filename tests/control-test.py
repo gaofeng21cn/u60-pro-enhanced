@@ -85,20 +85,20 @@ with tempfile.TemporaryDirectory(prefix='u60-control-test-') as tmp:
   r=call('usb.role',{'role':role},{'reject_writes':True});assert not r['ok']
  for action in ['usb.macnet.enable','usb.macnet.restore']:
   r=call(action,{});assert not r['ok'] and r['fixture_write_count']==0
- for phase,expected in [('pending',['confirm','restore']),('active',['restore']),('failed',['restore']),('restored',['start'])]:
-  host={'ok':True,'mode':'rndis' if phase=='restored' else 'ecm','trial_state':phase,'switch_available':phase=='restored'}
+ for phase in ['idle','pending','active','failed','restored']:
+  host={'ok':True,'mode':'rndis' if phase=='restored' else 'ncm','trial_state':phase,'ncm_composition':True}
   r=call('state',patch={'usb.macnet.status':host})
   items=next(x['items'] for x in r['sections'] if x['id']=='usb')
   trial=next(x for x in items if x['id']=='macnet.trial')
-  assert trial['enabled'] and [x['args']['action'] for x in trial['choices']]==expected
+  assert not trial['enabled'] and not trial.get('action') and not trial.get('choices')
  for action in ['start','confirm','restore']:
-  r=call('usb.macnet.trial',{'action':action},{'ecm_action_ok':True});assert r['ok'] and r['fixture_write_count']==1
+  r=call('usb.macnet.trial',{'action':action},{'ncm_action_ok':True});assert not r['ok'] and r['fixture_write_count']==0
  r=call('usb.macnet.trial',{'action':'bad;command'});assert not r['ok'] and r['fixture_write_count']==0
  for host in [
   {'ok':True,'mode':'rndis','bound':True,'configured':True,'ncm_present':True},
   {'ok':True,'mode':'rndis','bound':True,'configured':True,'carrier':False},
-  {'ok':True,'mode':'ecm','bound':True,'configured':True,'carrier':True,'bridged':True},
-  {'ok':True,'mode':'ecm','bound':False},
+  {'ok':True,'mode':'ncm','bound':True,'configured':True,'carrier':True,'bridged':True},
+  {'ok':True,'mode':'ncm','bound':False},
   {'ok':False,'mode':'unknown'}]:
   r=call('state',patch={'usb.macnet.status':host})
   items=next(x['items'] for x in r['sections'] if x['id']=='usb')

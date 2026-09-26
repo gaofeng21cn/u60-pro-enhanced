@@ -340,10 +340,6 @@ static cJSON *usb_role_run(const char *role){
  if(cJSON_IsObject(r)&&(!cJSON_IsTrue(jget(r,"ok"))||ok))return r;
  cJSON_Delete(r);return reply(0,"网口协调服务尚未就绪");
 }
-static cJSON *usb_ecm_action(const char *action){
- if(fixture){fixture_write_count++;return reply(cJSON_IsTrue(jget(fixture,"ecm_action_ok")),"fixture ECM action");}
- char out[2048];char *av[]={"enable-usb-macnet.sh",(char*)(!strcmp(action,"restore")?"restore-trial":action),NULL};int ok=run_cmd("/data/u60-panel/enable-usb-macnet.sh",av,NULL,out,sizeof(out));cJSON*r=cJSON_Parse(out);if(cJSON_IsObject(r)&&(!cJSON_IsTrue(jget(r,"ok"))||ok))return r;cJSON_Delete(r);return reply(0,"ECM 试运行未获确认");
-}
 static cJSON *usb_macnet_status(void){
  if(fixture)return mock("usb.macnet.status");
  char out[2048];char *av[]={"enable-usb-macnet.sh","status",NULL};
@@ -373,14 +369,8 @@ static cJSON *state(void){
  item(s,"macnet.mode","USB 直连协议","info",!known?"未知":!strcmp(mm,"ecm")?"ECM":!strcmp(mm,"rndis")?"RNDIS":!strcmp(mm,"ncm")?"NCM":"未知",NULL,0,NULL);
  const char *link_state=!known?"读取失败":!cJSON_IsTrue(jget(mac,"bound"))?"USB 功能未绑定":!cJSON_IsTrue(jget(mac,"configured"))?"等待电脑识别":!cJSON_IsTrue(jget(mac,"carrier"))?"USB 已枚举，网络链路未建立":!cJSON_IsTrue(jget(mac,"bridged"))?"网口已连接，未加入内网":"USB 内网链路已连接，上网待验证";
  item(s,"macnet.link","USB 直连链路","info",link_state,NULL,0,NULL);
- const char *ts=jstr(mac,"trial_state");int pending=!strcmp(ts,"pending"),active=!strcmp(ts,"active"),failed=!strcmp(ts,"failed");
- const char *mac_help=!strcmp(mm,"ecm")?"ECM 已启用；请确认电脑取得地址并能上网":cJSON_IsTrue(jget(mac,"switch_available"))?"Mac 需要 ECM；通过 Wi-Fi 管理可保留恢复入口":cJSON_IsTrue(jget(mac,"ncm_present"))?"内核具备 NCM；仍需完成 USB 切换、ADB 恢复和 Mac 联网验收":"Mac 原生 USB 网络适配尚未完成；请使用 Wi-Fi";
- item(s,"macnet.help","Mac 连接说明","info",mac_help,NULL,0,NULL);
- const char *mac_label=pending?"试运行中 · 等待确认":active?"ECM · 本次生效":failed?"恢复未完成":!strcmp(ts,"restored")?"已恢复 RNDIS":cJSON_IsTrue(jget(mac,"switch_available"))?"RNDIS · 可试用 ECM":cJSON_IsTrue(jget(mac,"ncm_present"))?"NCM · 待验证":"USB 原生网络适配中";
- cJSON *trial=item(s,"macnet.trial","Mac USB 连接","choice",mac_label,"usb.macnet.trial",cJSON_IsTrue(jget(mac,"switch_available"))||pending||active||failed,"仅 B31；USB 切换会短暂中断 ADB。NCM 尚未完成安全回退和 Mac 联网验收，当前不会启用。");
- if(pending)choice(trial,"电脑已联网，保留 ECM","action","confirm");
- if(pending||active||failed)choice(trial,"恢复原厂 RNDIS","action","restore");
- else if(cJSON_IsTrue(jget(mac,"switch_available")))choice(trial,"试用 ECM（适用于 Mac）","action","start");
+ item(s,"macnet.help","Mac 连接说明","info","Mac 原生 NCM 尚未通过验收；USB 切换已停用，保护 ADB",NULL,0,NULL);
+ item(s,"macnet.trial","Mac USB 连接","info","NCM · 待验证，切换已停用",NULL,0,"原生 NCM 的独立恢复和联网能力尚未验证，保持原厂 USB 组合。");
  if(!strcmp(port_state,"WAIT_ADAPTER"))cJSON_ReplaceItemInObject(d,"usb_status",cJSON_CreateString(link_state));
  cJSON_Delete(mac);
  info(s,"mode","USB 模式",usb,"mode");cJSON_Delete(us);cJSON_Delete(usb);cJSON_Delete(wan);
@@ -407,7 +397,7 @@ static cJSON *dispatch(const cJSON *r){const char *a=jstr(r,"action");cJSON *arg
 #ifdef HAVE_CLASH_CONTROL
  if(!fixture){cJSON *cr=control_clash_action(a,args);if(cr)return cr;}
 #endif
- if(!strcmp(a,"usb.role")){const char*role=jstr(args,"role");if(strcmp(role,"AUTO")&&strcmp(role,"LAN"))return reply(0,"请选择 AUTO 或 LAN");return usb_role_run(role);}if(!strcmp(a,"usb.macnet.trial")){const char*action=jstr(args,"action");if(strcmp(action,"start")&&strcmp(action,"confirm")&&strcmp(action,"restore"))return reply(0,"无效 ECM 试运行操作");return usb_ecm_action(action);}if(!strcmp(a,"usb.macnet.enable"))return reply(0,"请使用 Mac ECM 试运行");if(!strcmp(a,"usb.macnet.restore"))return reply(0,"请使用 Mac ECM 试运行");if(!strcmp(a,"internet.profile"))return reply(0,"上网出口编排尚需迁移验收；未修改路由");return reply(0,"不支持的操作");}
+ if(!strcmp(a,"usb.role")){const char*role=jstr(args,"role");if(strcmp(role,"AUTO")&&strcmp(role,"LAN"))return reply(0,"请选择 AUTO 或 LAN");return usb_role_run(role);}if(!strcmp(a,"usb.macnet.trial")){const char*action=jstr(args,"action");if(strcmp(action,"start")&&strcmp(action,"confirm")&&strcmp(action,"restore"))return reply(0,"无效 NCM 试运行操作");return reply(0,"NCM 试运行已停用：ADB 恢复保护尚未验证");}if(!strcmp(a,"usb.macnet.enable"))return reply(0,"NCM 尚未完成实机验收");if(!strcmp(a,"usb.macnet.restore"))return reply(0,"USB 在线切换已停用，保持原厂 USB 组合");if(!strcmp(a,"internet.profile"))return reply(0,"上网出口编排尚需迁移验收；未修改路由");return reply(0,"不支持的操作");}
 int main(int argc,char **argv){signal(SIGPIPE,SIG_IGN);
  if(argc==3&&!strcmp(argv[1],"--fixture")){FILE *f=fopen(argv[2],"rb");if(f){char b[131072];size_t n=fread(b,1,sizeof(b)-1,f);b[n]=0;fclose(f);fixture=cJSON_Parse(b);}if(!fixture){puts("{\"ok\":false,\"message\":\"无效的测试 fixture\"}");return 0;}}
  else if(argc!=1){puts("{\"ok\":false,\"message\":\"只支持标准输入 JSON 请求\"}");return 0;}

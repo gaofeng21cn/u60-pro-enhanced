@@ -68,9 +68,17 @@ doctor() {
 install_tools() {
   need_darwin
   command -v brew >/dev/null 2>&1 || die '未找到 Homebrew；请先安装 Homebrew'
-  brew install XiaoMiku01/tap/tetherkit-cli
-  note '已安装 tetherkit-cli。首次 start 会请求一次 sudo，用于创建 macOS feth 网卡和打开 BPF。'
-  note '如需图形界面，可另行安装：brew install XiaoMiku01/tap/tetherkit'
+  brew install XiaoMiku01/tap/tetherkit XiaoMiku01/tap/tetherkit-cli
+  note '已安装 TetherKit 图形界面和 tetherkit-cli。'
+  note '推荐首次运行 gui；官方 GUI 会安装一次特权 helper，之后由 helper 维护 feth/BPF，不必每次输入 sudo。'
+}
+gui() {
+  need_darwin
+  command -v brew >/dev/null 2>&1 || die '未找到 Homebrew；请先安装 Homebrew'
+  app="$(brew --prefix)/opt/tetherkit/TetherKit.app"
+  [ -d "$app" ] || die '未找到 TetherKit.app；先运行：sh u60-rndis.sh install'
+  open "$app"
+  note '已打开 TetherKit。首次运行请在窗口中安装特权组件；输入一次 macOS 管理员密码后，后续连接由 helper 维护。'
 }
 list_devices() {
   need_darwin; need_cli
@@ -122,6 +130,7 @@ stop() {
 }
 case "${1:-}" in
   install) shift; [ "$#" = 0 ] || die 'install 不接受参数'; install_tools ;;
+  gui) shift; [ "$#" = 0 ] || die 'gui 不接受参数'; gui ;;
   doctor) shift; [ "$#" = 0 ] || die 'doctor 不接受参数'; doctor ;;
   list) shift; [ "$#" = 0 ] || die 'list 不接受参数'; list_devices ;;
   start) shift; start "$@" ;;
@@ -129,9 +138,10 @@ case "${1:-}" in
   stop) shift; [ "$#" = 0 ] || die 'stop 不接受参数'; stop ;;
   *)
     cat <<'EOF'
-用法：u60-rndis.sh <install|doctor|list|start|status|stop>
+用法：u60-rndis.sh <install|gui|doctor|list|start|status|stop>
 
-  install             安装上游 TetherKit GUI（Homebrew）
+  install             安装上游 TetherKit GUI 与 CLI（Homebrew）
+  gui                 打开 TetherKit GUI；首次运行安装一次特权 helper
   doctor              检查 macOS、TetherKit、U60 RNDIS 和 feth 前置条件
   list                只读列出已识别的 U60 RNDIS
   start [--route-all] 启动用户态 RNDIS，并自动配置 DHCP

@@ -5,17 +5,31 @@ umask 077
 [ "$(id -u)" = 0 ]
 cd /data/u60-clash
 # Existing installations explicitly opt in; updates never rewrite private config.
-if [ "${1:-}" = --enable-ntp ];then
+if [ "${1:-}" = --enable-ntp ] || [ "${1:-}" = --repair-ntp ];then
  exec 7>/tmp/u60-control.lock;flock -n 7 || { echo 'Another operation is running';exit 2; }
  [ -s config.yaml ] && [ -x mihomo ] || exit 1
- if grep -Eq '^ntp[[:space:]]*:' config.yaml;then
+ if grep -Eq '^ntp[[:space:]]*:' config.yaml && [ "$1" = --enable-ntp ];then
   echo 'NTP configuration already exists; retained it. Review enable, dialer-proxy and write-to-system in your private config.';exit 0
  fi
  backup="config-before-ntp-$(date +%s)-$$.private"
  cp -p config.yaml "$backup"
  trap 'rm -f config.yaml.ntp-next /tmp/u60-ntp-reply.$$' EXIT
- cat config.yaml > config.yaml.ntp-next
- printf '\nntp:\n  enable: true\n  server: time.apple.com\n  port: 123\n  interval: 30\n  dialer-proxy: DIRECT\n  write-to-system: false\n' >> config.yaml.ntp-next
+ if [ "$1" = --repair-ntp ];then
+  # Replace only our historical default in the top-level NTP block.
+  # A private/custom NTP choice must never be rewritten by this migration.
+  awk '
+   /^ntp[[:space:]]*:/ { in_ntp=1 }
+   in_ntp && /^[^[:space:]#]/ && !/^ntp[[:space:]]*:/ { in_ntp=0 }
+   in_ntp && /^  server: time[.]apple[.]com[[:space:]]*$/ {
+    print "  server: 162.159.200.1"; changed=1; next
+   }
+   { print }
+   END { if (!changed) exit 3 }
+  ' config.yaml > config.yaml.ntp-next || { echo 'Historical NTP default not found; configuration retained.';exit 0; }
+ else
+  cat config.yaml > config.yaml.ntp-next
+  printf '\nntp:\n  enable: true\n  server: 162.159.200.1\n  port: 123\n  interval: 30\n  dialer-proxy: DIRECT\n  write-to-system: false\n' >> config.yaml.ntp-next
+ fi
  ./mihomo -t -d /data/u60-clash -f /data/u60-clash/config.yaml.ntp-next >/dev/null 2>&1 || { echo 'Invalid candidate; original config retained';exit 1; }
  # Load only the local controller credential; never print or pass it in argv.
  secret=$(sed -n 's/^secret: *//p' config.yaml | tr -d '\"\047\r\n ')
@@ -32,7 +46,7 @@ if [ "${1:-}" = --enable-ntp ];then
     case "$code" in 200|204) echo 'Reload failed; original configuration restored';; *) echo 'Original file restored but runtime rollback unconfirmed';; esac;exit 1;; esac
  exit 0
 fi
-[ "$#" = 0 ] || { echo 'Usage: setup-clash.sh [--enable-ntp]';exit 2; }
+[ "$#" = 0 ] || { echo 'Usage: setup-clash.sh [--enable-ntp|--repair-ntp]';exit 2; }
 [ ! -e config.yaml ] || { echo 'Configuration already exists; nothing changed.';exit 1; }
 [ -x mihomo ] && [ -s config.example.yaml ]
 secret=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')

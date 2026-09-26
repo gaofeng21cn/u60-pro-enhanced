@@ -83,6 +83,11 @@ class PortableUpgrade(unittest.TestCase):
         self.put(payload / 'boot/portable-boot.sh', '#!/bin/sh\nexit 0\n')
         for name in SERVICES:
             self.put(payload / 'init' / name, '#!/bin/sh\ncase "$1" in start) exit 0;; restart) exit 0;;esac\n')
+        # These files did not exist before the NCM candidate release. Their
+        # absence is part of the rollback target, not an incomplete backup.
+        for name in ['usb-ncm-composition.sh', 'usb-ncm-trial.sh']:
+            self.put(payload / 'data/u60-panel' / name, '#!/bin/sh\nexit 1\n')
+        self.put(payload / 'init/u60-ncm-trial', '#!/bin/sh\nexit 1\n')
         # Installed device: same programs, plus the state and the first-install backup.
         for rel, body in self.programs.items():
             self.put(self.target / rel, body)
@@ -286,6 +291,12 @@ else:
         # The old bytes stay available for a manual rollback.
         self.assertEqual((backup / 'data/u60-panel/u60-panel').read_text(),
                          self.programs['data/u60-panel/u60-panel'])
+        manifest = (backup / 'BACKUP-SHA256SUMS').read_text()
+        for name in ['usb-ncm-composition.sh', 'usb-ncm-trial.sh']:
+            self.assertTrue((self.target / 'data/u60-panel' / name).is_file())
+            self.assertIn('  data-missing/u60-panel/' + name + '\n', manifest)
+        self.assertIn('  init-missing/u60-ncm-trial\n', manifest)
+        self.assertFalse(list((self.target / 'etc/rc.d').glob('*ncm*')))
 
     def test_different_running_core_refused_before_backup(self):
         core=self.target/'data/u60-clash/mihomo'
@@ -314,6 +325,11 @@ else:
         r = self.run_upgrade('upgrade')
         self.assertNotEqual(r.returncode, 0)
         self.assertIn('restoring the previous programs', r.stderr)
+        self.assertIn('Previous programs restored', r.stderr)
+        self.assertNotIn('Automatic rollback did not complete', r.stderr)
+        for name in ['usb-ncm-composition.sh', 'usb-ncm-trial.sh']:
+            self.assertFalse((self.target / 'data/u60-panel' / name).exists())
+        self.assertFalse((self.target / 'etc/init.d/u60-ncm-trial').exists())
         self.assertEqual((self.target / 'data/u60-panel/u60-panel').read_text(),
                          self.programs['data/u60-panel/u60-panel'])
         self.assertEqual((self.target / 'data/u60-panel/portable-release').read_text(),

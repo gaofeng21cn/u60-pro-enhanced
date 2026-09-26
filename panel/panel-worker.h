@@ -17,7 +17,7 @@ static int worker_start(const cJSON *request,int action) {
  close(in[0]);close(out[1]);size_t n=strlen(wire),at=0;
  while(at<n){ssize_t w=write(in[1],wire+at,n-at);if(w<0&&errno==EINTR)continue;if(w<=0)break;at+=(size_t)w;}
  memset(wire,0,n);free(wire);close(in[1]);fcntl(out[0],F_SETFL,O_NONBLOCK);
- pw.pid=p;pw.fd=out[0];pw.action=action;pw.started=now_ms();const cJSON*cv=cJSON_GetObjectItemCaseSensitive(request,"action");const char*command=cJSON_IsString(cv)?cv->valuestring:"";pw.timeout=action&&!strncmp(command,"wifi.relay.",11)?220000:action&&(!strcmp(command,"wifi.power")||!strcmp(command,"wifi.ap"))?105000:action&&!strcmp(command,"network.tailscale_mode")?75000:45000;pw.buf=malloc(WORKER_CAP+1);pw.used=0;
+ pw.pid=p;pw.fd=out[0];pw.action=action;pw.started=now_ms();const cJSON*cv=cJSON_GetObjectItemCaseSensitive(request,"action");const char*command=cJSON_IsString(cv)?cv->valuestring:"";pw.timeout=action&&!strncmp(command,"wifi.relay.",11)?220000:action&&(!strcmp(command,"wifi.power")||!strcmp(command,"wifi.ap"))?105000:action&&!strcmp(command,"network.tailscale_mode")?75000:action&&!strcmp(command,"diag.network")?60000:45000;pw.buf=malloc(WORKER_CAP+1);pw.used=0;
  if(!pw.buf||at<n){worker_clear(1);return 0;}return 1;
 }
 static void live_num(cJSON *o,const char*k,double value){cJSON_DeleteItemFromObjectCaseSensitive(o,k);cJSON_AddNumberToObject(o,k,value);}
