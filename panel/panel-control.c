@@ -371,7 +371,10 @@ static cJSON *state(void){
  item(s,"macnet.link","USB 直连链路","info",link_state,NULL,0,NULL);
  item(s,"macnet.help","Mac 连接说明","info","Mac 原生 NCM 尚未通过验收；USB 切换已停用，保护 ADB",NULL,0,NULL);
  item(s,"macnet.trial","Mac USB 连接","info","NCM · 待验证，切换已停用",NULL,0,"原生 NCM 的独立恢复和联网能力尚未验证，保持原厂 USB 组合。");
- if(!strcmp(port_state,"WAIT_ADAPTER"))cJSON_ReplaceItemInObject(d,"usb_status",cJSON_CreateString(link_state));
+ if(!strcmp(port_state,"WAIT_ADAPTER")){
+  const char*summary=!known?"USB 状态未知":!cJSON_IsTrue(jget(mac,"bound"))?"USB 未就绪":!cJSON_IsTrue(jget(mac,"configured"))?"等待电脑识别":!cJSON_IsTrue(jget(mac,"carrier"))?"USB 未联网":!cJSON_IsTrue(jget(mac,"bridged"))?"USB 未接入内网":"USB 内网已连接";
+  cJSON_ReplaceItemInObject(d,"usb_status",cJSON_CreateString(summary));
+ }
  cJSON_Delete(mac);
  info(s,"mode","USB 模式",usb,"mode");cJSON_Delete(us);cJSON_Delete(usb);cJSON_Delete(wan);
  cJSON *profile=profile_run("status");copy_value(d,"network_profile",profile,"profile");s=section(root,"router","路由与上网");i=item(s,"profile","当前上网出口","info",*jstr(profile,"profile")?jstr(profile,"profile"):"未知",NULL,0,"代理在 Clash 页面控制，远程出口在组网页面控制");cJSON_Delete(profile);cJSON *lan=ubus_read("zwrt_router.api","router_get_dhcp_router");info(s,"lan_ip","局域网地址",lan,"lan_addr");info(s,"netmask","子网掩码",lan,"lan_netmask");cJSON_Delete(lan);read_stats(root);

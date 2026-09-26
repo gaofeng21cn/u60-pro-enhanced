@@ -17,7 +17,7 @@ static cJSON *relay_action(const char*action,const cJSON*args){
    cJSON_AddStringToObject(picker,"label","已保存的上游");cJSON_AddStringToObject(picker,"action","wifi.relay.profile");
    cJSON_AddStringToObject(picker,"reason","最多保存 8 个网络。优先级高的先连接，同优先级选择强信号；当前连接正常时不切换。点击网络可连接、设为首选或忘记。");
    cJSON*n;cJSON_ArrayForEach(n,jget(r,"networks")){cJSON*c=cJSON_CreateObject();char label[160];int band=jget(n,"band")?jget(n,"band")->valueint:0,rank=jget(n,"priority")?jget(n,"priority")->valueint:0;
-    snprintf(label,sizeof(label),"%s · %s · 优先级 %d",jstr(n,"ssid"),band==2?"2.4G":band==5?"5G":"双频",rank);cJSON_AddStringToObject(c,"label",label);cJSON*arg=cJSON_AddObjectToObject(c,"args");cJSON_AddStringToObject(arg,"id",jstr(n,"id"));cJSON_AddItemToArray(choices,c);}
+    snprintf(label,sizeof(label),"%s · %s · %s",jstr(n,"ssid"),band==2?"2.4G":band==5?"5G":"双频",rank==1000?"首选":rank>0?"高优先级":"候选");cJSON_AddStringToObject(c,"label",label);cJSON*arg=cJSON_AddObjectToObject(c,"args");cJSON_AddStringToObject(arg,"id",jstr(n,"id"));cJSON_AddItemToArray(choices,c);}
   }else{
    cJSON*n,*selected=NULL;cJSON_ArrayForEach(n,jget(r,"networks"))if(!strcmp(jstr(n,"id"),jstr(args,"id")))selected=n;
    if(!selected){cJSON_Delete(r);cJSON_Delete(out);return reply(0,"网络已变化，请重新打开列表");}

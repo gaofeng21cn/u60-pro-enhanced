@@ -18,6 +18,9 @@ class Profiles(unittest.TestCase):
    networks=run('profiles')['networks'];home,office=networks;self.assertEqual(len(networks),2)
    before=conf.read_bytes();self.assertFalse(run('profile-prefer',{'id':'../../bad'})['ok']);self.assertEqual(conf.read_bytes(),before)
    self.assertTrue(run('profile-prefer',{'id':office['id']})['ok']);self.assertIn('priority=1000',conf.read_text())
+   self.assertEqual([n['ssid'] for n in run('profiles')['networks']],['Office','Home'])
+   saved_inode=conf.stat().st_ino
+   self.assertTrue(run('profile-prefer',{'id':office['id']})['ok']);self.assertEqual(conf.stat().st_ino,saved_inode)
    self.assertIn('synthetic-secret-home',conf.read_text());self.assertEqual(conf.stat().st_mode&0o777,0o600)
    (private/'enabled').touch();self.assertFalse(run('profile-forget',{'id':home['id']})['ok'])
    sock=socket.socket(socket.AF_UNIX,socket.SOCK_DGRAM);sock.bind(str(d/'ctrl/u60sta'));sock.settimeout(.1)

@@ -104,8 +104,14 @@ with tempfile.TemporaryDirectory(prefix='u60-control-test-') as tmp:
   items=next(x['items'] for x in r['sections'] if x['id']=='usb')
   assert r['fixture_write_count']==0
   assert all(not x['enabled'] for x in items if x['id'].startswith('macnet.'))
-  if host.get('bridged'):assert r['data']['usb_status']=='USB 内网链路已连接，上网待验证'
-  if not host['ok']:assert r['data']['usb_status']=='读取失败'
+  detail=next(x for x in items if x['id']=='macnet.link')
+  if host.get('bridged'):
+   assert r['data']['usb_status']=='USB 内网已连接'
+   assert '上网待验证' in detail['value']
+  if host.get('configured') and not host.get('carrier'):
+   assert r['data']['usb_status']=='USB 未联网'
+   assert '网络链路未建立' in detail['value']
+  if not host['ok']:assert r['data']['usb_status']=='USB 状态未知'
  for badge,state in [('WAN','WAN'),('LAN','LAN'),('WAIT','RESTORING'),('ERROR','CONFLICT'),('','WAIT_ADAPTER')]:
   r=call('state',patch={'usb.role.status':{'ok':True,'requested':'AUTO','state':state,'badge':badge,'message':'状态样例'}})
   assert r['data']['usb']['badge']==badge and r['data']['usb']['state']==state

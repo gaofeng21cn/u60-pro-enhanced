@@ -2,7 +2,7 @@
 
 为中兴 U60 Pro（MU5250）国行 **B28 / B31** 提供原生小屏界面、原厂网页增强、Clash/Mihomo、Tailscale、Wi-Fi 接力与 USB 网口管理。保留原厂固件和管理页，双击电源键可切换界面。
 
-**当前版本：[v0.1.12-experimental](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.12-experimental)**。这是实验版：支持固件检查和设备身份绑定，不代表全部网络与硬件组合已经验收。安装前请阅读[验证范围](docs/VALIDATION.md)。Mac 数据线直连按“原生 NCM → TetherKit 降级”的顺序推进；原生 USB 网络尚未完成实机发布验收，当前用户能力仍保持关闭。
+**当前版本：[v0.1.13-experimental](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.13-experimental)**。这是实验版：支持固件检查和设备身份绑定，不代表全部网络与硬件组合已经验收。安装前请阅读[验证范围](docs/VALIDATION.md)。Mac 数据线直连按“原生 NCM → TetherKit 降级”的顺序推进；原生 USB 网络尚未完成实机发布验收，当前用户能力仍保持关闭。
 
 ## 先确认你的设备
 
@@ -18,14 +18,14 @@
 
 ## 下载与准备
 
-下载本仓库 Release 中的 `u60-pro-enhanced-v0.1.12-experimental.tar.gz` 和 `SHA256SUMS.txt`，不要使用 GitHub 自动生成的 Source code 压缩包作为安装包。上游 B28 包不能用于 B31。
+下载本仓库 Release 中的 `u60-pro-enhanced-v0.1.13-experimental.tar.gz` 和 `SHA256SUMS.txt`，不要使用 GitHub 自动生成的 Source code 压缩包作为安装包。上游 B28 包不能用于 B31。
 
 macOS 示例（Linux 将 `shasum -a 256` 换成 `sha256sum`）：
 
 ```sh
 shasum -a 256 -c SHA256SUMS.txt
-tar -xzf u60-pro-enhanced-v0.1.12-experimental.tar.gz
-cd u60-pro-enhanced-v0.1.12-experimental
+tar -xzf u60-pro-enhanced-v0.1.13-experimental.tar.gz
+cd u60-pro-enhanced-v0.1.13-experimental
 adb devices
 python3 prepare.py
 ```
@@ -93,7 +93,7 @@ Wi-Fi 接力支持 **2.4GHz 和非 DFS 的 5GHz 上游**，并非仅限 2.4GHz�
 macOS 原生支持 CDC NCM，但不支持 U60 当前的 RNDIS。NCM composition 验收完成前，Release 包只把上游 [TetherKit](https://github.com/XiaoMiku01/TetherKit) 作为保留的降级材料，不把它当作当前主路线；它不安装内核扩展、不降低 SIP，也不修改 U60 的 USB gadget。只有 NCM 被设备验收证明无法安全成立后，才按下列方式启用降级方案：
 
 ```sh
-cd u60-pro-enhanced-v0.1.12-experimental
+cd u60-pro-enhanced-v0.1.13-experimental
 sh macos/u60-rndis.sh install
 sh macos/u60-rndis.sh gui
 ```

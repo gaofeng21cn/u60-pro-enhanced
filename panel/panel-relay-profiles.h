@@ -63,7 +63,8 @@ static cJSON*profiles_public(void){
  struct relay_profiles*s=calloc(1,sizeof(*s));if(!s)return result(0,"内存不足");
  if(!profiles_load(s)){memset(s,0,sizeof(*s));free(s);return result(0,"保存网络不可读；未修改凭据");}
  cJSON*r=result(1,"已读取保存网络"),*a=cJSON_AddArrayToObject(r,"networks");
- for(int i=0;i<s->count;i++){struct relay_profile*p=&s->entries[i];cJSON*x=cJSON_CreateObject();cJSON_AddStringToObject(x,"id",p->id);cJSON_AddStringToObject(x,"ssid",p->ssid);cJSON_AddStringToObject(x,"security",p->security);cJSON_AddNumberToObject(x,"band",p->band);cJSON_AddNumberToObject(x,"priority",p->priority);cJSON_AddItemToArray(a,x);}
+ int order[PROFILE_MAX];for(int i=0;i<s->count;i++){int j=i;while(j>0&&s->entries[order[j-1]].priority<s->entries[i].priority){order[j]=order[j-1];j--;}order[j]=i;}
+ for(int i=0;i<s->count;i++){struct relay_profile*p=&s->entries[order[i]];cJSON*x=cJSON_CreateObject();cJSON_AddStringToObject(x,"id",p->id);cJSON_AddStringToObject(x,"ssid",p->ssid);cJSON_AddStringToObject(x,"security",p->security);cJSON_AddNumberToObject(x,"band",p->band);cJSON_AddNumberToObject(x,"priority",p->priority);cJSON_AddItemToArray(a,x);}
  memset(s,0,sizeof(*s));free(s);return r;
 }
 static int profiles_merge(const struct relay_profiles*old,const char*new_config){
@@ -91,6 +92,10 @@ static cJSON*profile_action(const char*command,const cJSON*a){
   ok=helper("pause")&&selected_profile(s->entries[index].id)&&helper("on");
   if(!ok){unlink(RUN "/selected-profile");if(was_enabled)helper("on");}
   r=result(ok,ok?"正在连接所选网络；失败后按优先级尝试其他网络":"连接请求未完成，请查看中继状态");goto end;
+ }
+ if(!strcmp(command,"profile-prefer")&&s->entries[index].priority==1000){
+  int highest=1;for(int i=0;i<s->count;i++)if(i!=index&&s->entries[i].priority>=1000)highest=0;
+  if(highest){r=result(1,"已是首选；当前连接保持不变");goto end;}
  }
  if(!strcmp(command,"profile-forget")&&!access(PRIVATE "/enabled",F_OK)){r=result(0,"请先停止中继再忘记网络");goto end;}
  char*out=calloc(1,PROFILE_BYTES+1);size_t used=0;if(!out){r=result(0,"内存不足");goto end;}
