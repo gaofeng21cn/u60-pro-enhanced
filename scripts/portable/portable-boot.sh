@@ -16,6 +16,7 @@ umask 077
   attempt=$((attempt + 1))
  done
  [ ! -s /data/tailscale/tailscaled.state ] || sh /data/tailscale/tailscale-start.sh
- [ ! -s /data/u60-clash/config.yaml ] || sh /data/u60-clash/start.sh
+ [ ! -s /data/u60-clash/config.yaml ] || /data/u60-panel/network-profile.sh clash-boot
 ) </dev/null >/dev/null 2>&1 &
+nohup sh /data/u60-panel/usb-macnet-owner.sh boot </dev/null >/dev/null 2>&1 &
 exec /data/u60-panel/panel-autostart.sh

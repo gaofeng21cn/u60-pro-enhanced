@@ -2,7 +2,9 @@
 
 为中兴 U60 Pro（MU5250）国行 **B28 / B31** 提供原生小屏界面、原厂网页增强、Clash/Mihomo、Tailscale、Wi-Fi 接力与 USB 网口管理。保留原厂固件和管理页，双击电源键可切换界面。
 
-**当前版本：[v0.1.15-experimental](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.15-experimental)**。这是实验版：支持固件检查和设备身份绑定，不代表全部网络与硬件组合已经验收。安装前请阅读[验证范围](docs/VALIDATION.md)。Mac 数据线直连优先走已验证业务链路的原厂 ECM，NCM 继续研究，TetherKit 作为 RNDIS 备用；原生 USB 网络尚未完成恢复验收，当前用户能力仍保持关闭。
+项目目标、实施顺序与完成标准见[产品计划](docs/PLAN.md)。先完成可靠联网、统一交互及恢复交付，再完成 Mac USB 直连；未验收能力不计入已完成。
+
+**当前版本：[v0.1.16-experimental](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.16-experimental)**。这是实验版：支持固件检查和设备身份绑定，不代表全部网络与硬件组合已经验收。安装前请阅读[验证范围](docs/VALIDATION.md)。B31 的 Mac 数据线直连采用原生 ECM＋ADB，无需安装 Mac 软件；在“网络 → USB 数据线直连”开启一次并保存选择。已验收项目与仍需实物验证的范围见下文。
 
 ## 先确认你的设备
 
@@ -18,14 +20,14 @@
 
 ## 下载与准备
 
-下载本仓库 Release 中的 `u60-pro-enhanced-v0.1.15-experimental.tar.gz` 和 `SHA256SUMS.txt`，不要使用 GitHub 自动生成的 Source code 压缩包作为安装包。上游 B28 包不能用于 B31。
+下载本仓库 Release 中的 `u60-pro-enhanced-v0.1.16-experimental.tar.gz` 和 `SHA256SUMS.txt`，不要使用 GitHub 自动生成的 Source code 压缩包作为安装包。上游 B28 包不能用于 B31。
 
 macOS 示例（Linux 将 `shasum -a 256` 换成 `sha256sum`）：
 
 ```sh
 shasum -a 256 -c SHA256SUMS.txt
-tar -xzf u60-pro-enhanced-v0.1.15-experimental.tar.gz
-cd u60-pro-enhanced-v0.1.15-experimental
+tar -xzf u60-pro-enhanced-v0.1.16-experimental.tar.gz
+cd u60-pro-enhanced-v0.1.16-experimental
 adb devices
 python3 prepare.py
 ```
@@ -53,9 +55,9 @@ python3 deploy-from-computer.py start
 
 ```sh
 adb shell /etc/init.d/u60-web stop
-python3 prepare.py --output ../u60-prepared-private-v015
+python3 prepare.py --output ../u60-prepared-private-v016
 adb shell /etc/init.d/u60-web start
-cd ../u60-prepared-private-v015
+cd ../u60-prepared-private-v016
 python3 deploy-from-computer.py upgrade-check
 python3 deploy-from-computer.py upgrade
 ```
@@ -81,32 +83,16 @@ python3 deploy-from-computer.py upgrade
 |---|---|
 | U60 → USB 网卡 → 网线 → 电脑 | 选择 **LAN**，给下游供网；LAN 增加以下驱动的实验性适配： `r8152`、`cdc_ether`、`cdc_ncm`、`aqc111` 与 ASIX 驱动；AUTO 上游目前只对已验证的 AX88179（`0b95:1790`、`ax_usb_nic`）开放 |
 | 上级路由器 → 网线 → USB 网卡 → U60 | 选择 **AUTO**，获取有线上游地址；断线可回蜂窝。AUTO 不会把“没有 DHCP”猜成 LAN |
-| U60 → USB 数据线 → Mac | 原生 USB 网络优先走原厂 ECM；B31 已实测 Mac 原生枚举、DHCP、管理页和 HTTPS 业务通过，但恢复 ADB 的验收尚未通过，因此 Release 仍保持 RNDIS＋ADB，普通入口关闭。NCM 保留为设备能力研究；TetherKit 只作为不切换 U60 的 RNDIS 备用方案 |
+| U60 → USB 数据线 → Mac | B31 开启 **Mac USB 联网**，原生 ECM＋ADB，无需安装 Mac 软件；保存选择后自动恢复。默认关闭，升级及使用外接网卡前先关闭。验收边界见下文 |
 | 上游 Wi-Fi → U60 → 自身热点或 LAN | 同时连接一个 2.4G／非 DFS 5G 上游，最多保存 8 个网络，按首选顺序重连；不是 Mesh，不聚合两条 Wi-Fi 带宽 |
 
 Wi-Fi 接力支持 **2.4GHz 和非 DFS 的 5GHz 上游**，并非仅限 2.4GHz。5GHz 支持信道 36/40/44/48、149/153/157/161/165；找不到 5GHz 网络时先检查上游信道。
 
 ### Mac 数据线直连
 
-路线顺序现在收敛为：先验证原厂 ECM 的 Mac 直连，再研究 NCM；TetherKit 只作为不切换 U60 的 RNDIS 备用方案。一次 B31 实测已经证明 ECM 可以让 macOS 原生出现 `ZTE Mobile Broadband` 网口，DHCP 获得内网地址，访问 U60 管理页返回 HTTP 200，Google 返回 204、Cloudflare 返回 200 且 TLS 校验通过。试验结束时 ADB 没有自动恢复，因此当前 Release 仍保持原厂 RNDIS＋ADB，普通入口关闭；这次业务通过不能替代恢复验收。
+在增强网页“网络 → USB 数据线直连”或小屏“网络 → USB”开启 **Mac USB 联网**。Mac 网络设置中会出现 `ZTE Mobile Broadband`，通过 DHCP 获取地址，不需要安装驱动或运行 Mac 命令。关闭同一开关恢复原厂 RNDIS。
 
-macOS 原生支持 CDC ECM/NCM，但不支持 U60 当前的 RNDIS。原厂 ECM 已越过“Mac 能否直接使用”的业务断点，剩余工作是让 USB owner 在切换失败、拔插和冷启动时可靠恢复 RNDIS＋ADB。NCM 仍保留为设备能力研究，不把 ConfigFS 中存在 `ncm.0` 当成产品支持。TetherKit 不安装内核扩展、不降低 SIP，也不修改 U60 的 USB gadget；TetherKit 的完整联网链路也尚未通过本项目验收，可按下列方式准备备用工具：
-
-```sh
-cd u60-pro-enhanced-v0.1.15-experimental
-sh macos/u60-rndis.sh install
-sh macos/u60-rndis.sh gui
-```
-
-首次打开 TetherKit 时，在窗口中安装一次特权组件并输入 macOS 管理员密码；之后由官方 helper 维护 USB 网卡，用户只需在 GUI 中连接 U60 并选择 DHCP。该路径不需要每次重复输入密码，也不会触碰 U60 的 USB 组合或 ADB。命令行仅用于诊断：
-
-```sh
-sh macos/u60-rndis.sh doctor
-sh macos/u60-rndis.sh start
-sh macos/u60-rndis.sh status
-```
-
-需要让 Mac 将默认路由切到 U60 时显式执行 `sh macos/u60-rndis.sh start --route-all`；不带该参数只建立 DHCP 网卡，不覆盖现有 Wi-Fi 默认路由。停止使用 `sh macos/u60-rndis.sh stop`。TetherKit 由其上游以 MIT 许可提供，本项目不重新分发其二进制；Homebrew 会从上游构建并安装。完整限制与排障见[Mac RNDIS 直连](docs/MACOS-RNDIS.md)。
+当前路线为原生 **ECM＋ADB**：一台 B31 已通过 Mac 原生枚举、DHCP、管理页、Google/Cloudflare HTTPS，以及同时使用 ADB 和恢复完整原厂 USB 组合的验收。NCM 不作为这个用户目标的前置条件，旧实验入口继续停用。兼容固件、冷启动/拔插验证范围、网络服务顺序和运营商认证见 [Mac USB 直连说明](docs/MACOS-RNDIS.md) 与 [验证记录](docs/VALIDATION.md)。
 
 Wi-Fi 接力入口为“小屏：网络 → Wi-Fi → 连接上游 Wi-Fi；网页：增强功能 → 网络”。密码可在小屏或已登录的网页输入；小屏提供独立字符页，连接失败后保留内存草稿供修改重试。要求 5G 主热点开启、访客热点关闭、USB 为 LAN；同频热点可能短暂断开重连。界面分别显示关联/出口和互联网探测，探测失败不自动改变出口。
 

@@ -254,6 +254,37 @@ class NetworkProfileTests(unittest.TestCase):
             self.assertEqual(r.returncode,0,r.stdout+r.stderr)
             self.assertFalse(self.h.exit_file.read_text())
 
+    def test_boot_does_not_restart_stopped_core_or_change_routes(self):
+        (self.h.state/'network-profile').write_text('direct\n')
+        pid=pathlib.Path(self.h.env['CLASH_ROOT'])/'mihomo.pid'
+        pid.unlink()
+        started=self.h.run('clash-start')
+        self.assertEqual(started.returncode,0,started.stdout+started.stderr)
+        self.assertEqual((self.h.state/'clash-autostart').read_text().strip(),'1')
+        stopped=self.h.run('clash-stop')
+        self.assertEqual(stopped.returncode,0,stopped.stdout+stopped.stderr)
+        self.assertEqual((self.h.state/'clash-autostart').read_text().strip(),'0')
+        before=self.h.log.read_bytes()
+        boot=self.h.run('clash-boot')
+        self.assertEqual(boot.returncode,0,boot.stdout+boot.stderr)
+        self.assertFalse(json.loads(boot.stdout)['started'])
+        self.assertEqual(self.h.log.read_bytes(),before)
+
+    def test_unconfigured_boot_does_not_infer_consent_from_config(self):
+        (self.h.state/'network-profile').write_text('direct\n')
+        boot=self.h.run('clash-boot')
+        self.assertEqual(boot.returncode,0,boot.stdout+boot.stderr)
+        self.assertFalse(self.h.log.exists())
+        self.assertFalse((self.h.state/'clash-autostart').exists())
+
+    def test_failed_enable_restores_disabled_startup_intent(self):
+        (self.h.state/'network-profile').write_text('direct\n')
+        (self.h.state/'clash-autostart').write_text('0\n')
+        self.h.fail.write_text('-N U60_CLASH')
+        r=self.h.run('clash-enable')
+        self.assertNotEqual(r.returncode,0)
+        self.assertEqual((self.h.state/'clash-autostart').read_text().strip(),'0')
+
     def test_stop_stale_pid_enters_guard_not_false_rollback(self):
         (self.h.state/'network-profile').write_text('clash')
         (pathlib.Path(self.h.env['PROC_ROOT'])/str(os.getpid())/'exe').unlink()

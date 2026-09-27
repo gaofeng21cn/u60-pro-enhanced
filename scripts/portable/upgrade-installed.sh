@@ -52,6 +52,7 @@ is_state() {
  case "$1" in
   u60-panel/network-profile|u60-panel/tailscale-lan|u60-panel/tailscale-mode) return 0;;
   u60-panel/standby-mode|u60-panel/usb-role|u60-panel/compat-mode) return 0;;
+  u60-panel/usb-macnet-enabled|u60-panel/usb-macnet-private/*|u60-panel/clash-autostart) return 0;;
   u60-panel/portable-release|u60-clash/panel-prefs.json|u60-clash/mode) return 0;;
   u60-clash/config.yaml|u60-clash/config.yaml.*|u60-clash/panel-prefs.json.lock) return 0;;
   u60-clash/mihomo.log|u60-clash/web-backups/*|u60-clash/proxy_provider/*) return 0;;
@@ -60,6 +61,11 @@ is_state() {
  return 1
 }
 
+# A bind mount pins the running hook inode. Require the public switch to stop
+# it before replacing program bytes; keep intent/private recovery data intact.
+if grep -F ' /sbin/usb/compositions/usb_switch ' /proc/mounts >/dev/null || [ "$(cat /data/u60-panel/usb-macnet-enabled 2>/dev/null || true)" = 1 ];then
+ fail 'Turn off Mac USB networking through its UI before upgrading'
+fi
 BACKUP="/data/u60-upgrade-backups/$ID"
 [ ! -e "$BACKUP" ] || fail 'Upgrade backup already exists; inspect it before retrying'
 STAGE="/data/u60-packages/upgrade-$ID"
@@ -72,7 +78,7 @@ NCM_SOURCE="payload/data/u60-panel/usb-ncm-composition.sh"
 PLAN=$(cd payload/data && find . -type f | sed 's|^\./||' | sort | while IFS= read -r rel; do
  is_state "$rel" && continue
  if [ ! -e "/data/$rel" ]; then
-  [ "$rel" = u60-panel/usb-ncm-composition.sh ] || [ "$rel" = u60-panel/usb-ncm-trial.sh ] || [ "$rel" = u60-panel/usb-ecm-trial.sh ] || fail "Unexpected new file in package: $rel"
+  [ "$rel" = u60-panel/usb-ncm-composition.sh ] || [ "$rel" = u60-panel/usb-ncm-trial.sh ] || [ "$rel" = u60-panel/usb-ecm-trial.sh ] || [ "$rel" = u60-panel/usb-macnet-owner.sh ] || [ "$rel" = u60-panel/usb-macnet-hook.sh ] || fail "Unexpected new file in package: $rel"
  fi
  printf '%s\n' "$rel"
 done)

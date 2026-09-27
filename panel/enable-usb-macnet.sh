@@ -1,6 +1,6 @@
 #!/bin/sh
-# Read-only USB gadget diagnostics. Native ECM switching is quarantined until
-# independent recovery has been qualified; status reads never mutate ConfigFS.
+# Read-only USB gadget diagnostics. Native mode has a separate coordinated
+# owner; status reads never mutate ConfigFS.
 set -u
 
 GADGET=/sys/kernel/config/usb_gadget/g1
@@ -80,11 +80,11 @@ case "${1:-status}" in
       "$ok" "$mode" "$rndis" "$ecm" "$ncm" "$adb" "$bound" "$configured" "$carrier" "$bridged" "$ncm_present" "$ncm_composition" "$trial" "$ecm_present" "$ecm_trial"
     ;;
   enable|start|confirm|restore|restore-trial|rndis|invalid)
-    printf '%s\n' '{"ok":false,"message":"USB 在线切换已停用；ECM 的 ADB 恢复保护尚未验证"}'
+    printf '%s\n' '{"ok":false,"message":"旧 USB 试验入口已停用；请使用 Mac USB 联网开关"}'
     exit 1
     ;;
   *)
-    printf '%s\n' '{"ok":false,"message":"用法：status（只读）；所有 USB 切换入口均已停用"}'
+    printf '%s\n' '{"ok":false,"message":"用法：status（只读）；此诊断脚本不执行 USB 切换"}'
     exit 2
     ;;
 esac

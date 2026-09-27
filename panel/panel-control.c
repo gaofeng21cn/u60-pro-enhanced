@@ -325,7 +325,7 @@ static void read_stats(cJSON *root){
  unsigned long long total=0,available=0;f=fopen("/proc/meminfo","r");if(f){char line[256];while(fgets(line,sizeof(line),f)){sscanf(line,"MemTotal: %llu kB",&total);sscanf(line,"MemAvailable: %llu kB",&available);}fclose(f);}if(total){cJSON_AddNumberToObject(d,"memory_total_bytes",(double)total*1024);cJSON_AddNumberToObject(d,"memory_available_bytes",(double)available*1024);cJSON_AddNumberToObject(d,"memory_used_percent",100.0*(total-available)/total);}else cJSON_AddNullToObject(d,"memory_used_percent");info(sys,"memory","内存占用 (%)",d,"memory_used_percent");
  /* Individual leaf interface counters only: excludes bridges, loopback, TUN and
   * duplicate IPv4/IPv6 references. No sum that double-counts a routed packet. */
- cJSON *netdev=cJSON_AddArrayToObject(d,"physical_interfaces");f=fopen("/proc/net/dev","r");if(f){char line[512];while(fgets(line,sizeof(line),f)){char dev[64];unsigned long long rx=0,tx=0;if(sscanf(line," %63[^:]: %llu %*u %*u %*u %*u %*u %*u %*u %llu",dev,&rx,&tx)!=3)continue;if(strncmp(dev,"eth",3)&&strncmp(dev,"usb",3)&&strncmp(dev,"rndis",5)&&strncmp(dev,"rmnet",5)&&strncmp(dev,"wlan",4)&&strncmp(dev,"mhi",3))continue;cJSON *v=cJSON_CreateObject();cJSON_AddStringToObject(v,"name",dev);cJSON_AddNumberToObject(v,"rx_bytes",(double)rx);cJSON_AddNumberToObject(v,"tx_bytes",(double)tx);cJSON_AddItemToArray(netdev,v);}fclose(f);}
+ cJSON *netdev=cJSON_AddArrayToObject(d,"physical_interfaces");f=fopen("/proc/net/dev","r");if(f){char line[512];while(fgets(line,sizeof(line),f)){char dev[64];unsigned long long rx=0,tx=0;if(sscanf(line," %63[^:]: %llu %*u %*u %*u %*u %*u %*u %*u %llu",dev,&rx,&tx)!=3)continue;if(strncmp(dev,"eth",3)&&strncmp(dev,"usb",3)&&strncmp(dev,"ecm",3)&&strncmp(dev,"rndis",5)&&strncmp(dev,"rmnet",5)&&strncmp(dev,"wlan",4)&&strncmp(dev,"mhi",3))continue;cJSON *v=cJSON_CreateObject();cJSON_AddStringToObject(v,"name",dev);cJSON_AddNumberToObject(v,"rx_bytes",(double)rx);cJSON_AddNumberToObject(v,"tx_bytes",(double)tx);cJSON_AddItemToArray(netdev,v);}fclose(f);}
  /* A short sample avoids presenting lifetime cumulative CPU as current load. */
  unsigned long long v1[8]={0},v2[8]={0};int got=0;f=fopen("/proc/stat","r");if(f){got=fscanf(f,"cpu %llu %llu %llu %llu %llu %llu %llu %llu",&v1[0],&v1[1],&v1[2],&v1[3],&v1[4],&v1[5],&v1[6],&v1[7]);fclose(f);}if(got==8){struct timespec delay={0,100000000};nanosleep(&delay,NULL);f=fopen("/proc/stat","r");if(f){got=fscanf(f,"cpu %llu %llu %llu %llu %llu %llu %llu %llu",&v2[0],&v2[1],&v2[2],&v2[3],&v2[4],&v2[5],&v2[6],&v2[7]);fclose(f);}unsigned long long a=0,z=0;for(int k=0;k<8;k++){a+=v1[k];z+=v2[k];}if(got==8&&z>a)cJSON_AddNumberToObject(d,"cpu_percent",100.0*((z-a)-(v2[3]-v1[3])-(v2[4]-v1[4]))/(z-a));}if(!jget(d,"cpu_percent"))cJSON_AddNullToObject(d,"cpu_percent");info(sys,"cpu","CPU 使用率 (%)",d,"cpu_percent");
 }
@@ -346,6 +346,13 @@ static cJSON *usb_macnet_status(void){
  int ok=run_cmd("/data/u60-panel/enable-usb-macnet.sh",av,NULL,out,sizeof(out));cJSON*r=cJSON_Parse(out);
  if(ok&&cJSON_IsObject(r)&&cJSON_IsBool(jget(r,"ok")))return r;
  cJSON_Delete(r);return reply(0,"USB 主机模式读取失败");
+}
+static cJSON *usb_macnet_owner(const char *command){
+ if(fixture){if(!strcmp(command,"status"))return mock("usb.macnet.owner");fixture_write_count++;return reply(!cJSON_IsTrue(jget(fixture,"reject_writes")),"USB request");}
+ char out[2048];char *av[]={"usb-macnet-owner.sh",(char*)command,NULL};
+ int ok=run_cmd("/data/u60-panel/usb-macnet-owner.sh",av,NULL,out,sizeof(out));cJSON*r=cJSON_Parse(out);
+ if(cJSON_IsObject(r)&&cJSON_IsBool(jget(r,"ok"))&&(!cJSON_IsTrue(jget(r,"ok"))||ok))return r;
+ cJSON_Delete(r);return reply(0,"USB 设置尚未确认，请查看当前链路状态");
 }
 static cJSON *state(void){
  cJSON *root=reply(1,"状态已读取；空值表示接口未提供数据");cJSON_AddObjectToObject(root,"data");cJSON_AddArrayToObject(root,"sections");wifi_sections(root);ts_sections(root);cJSON *d=jget(root,"data"),*s=section(root,"usb","USB 网络"),*usb=ubus_read("zwrt_bsp.usb","list"),*wan=ubus_read("zwrt_router.api","router_get_wan_mode_para");cJSON *ud=cJSON_AddObjectToObject(d,"usb");copy_value(ud,"mode",usb,"mode");copy_value(ud,"connected",usb,"connect");copy_value(ud,"adapter",usb,"usb2rj45");copy_value(ud,"wan_mode",wan,"opms_wan_mode");
@@ -369,8 +376,16 @@ static cJSON *state(void){
  item(s,"macnet.mode","USB 直连协议","info",!known?"未知":!strcmp(mm,"mixed")?"多协议组合":!strcmp(mm,"ecm")?"ECM":!strcmp(mm,"rndis")?"RNDIS":!strcmp(mm,"ncm")?"NCM":"未知",NULL,0,NULL);
  const char *link_state=!known?"读取失败":!cJSON_IsTrue(jget(mac,"bound"))?"USB 功能未绑定":!cJSON_IsTrue(jget(mac,"configured"))?"等待电脑识别":!cJSON_IsTrue(jget(mac,"carrier"))?"USB 已枚举，网络链路未建立":!cJSON_IsTrue(jget(mac,"bridged"))?"网口已连接，未加入内网":"USB 内网链路已连接，上网待验证";
  item(s,"macnet.link","USB 直连链路","info",link_state,NULL,0,NULL);
- item(s,"macnet.help","Mac 连接说明","info","原厂 ECM 已完成一次 Mac 业务验证；恢复 ADB 尚未通过，USB 切换仍停用",NULL,0,NULL);
- item(s,"macnet.trial","Mac USB 连接","info","ECM · 已验业务，待恢复验收",NULL,0,"Mac 已能原生枚举 ECM、获取 DHCP 并访问管理页与 HTTPS；由于试验后 ADB 未自动恢复，普通入口继续关闭。NCM 仍仅作设备能力研究。");
+ cJSON *native=usb_macnet_owner("status");const char *phase=jstr(native,"phase");
+ int busy=!strcmp(phase,"queued")||!strcmp(phase,"switching")||!strcmp(phase,"restoring");
+ int requested=cJSON_IsTrue(jget(native,"enabled")),active=cJSON_IsTrue(jget(native,"active"));
+ cJSON_AddItemToObject(ud,"macnet",native?cJSON_Duplicate(native,1):cJSON_CreateObject());
+ i=toggle(s,"macnet.enabled","Mac USB 联网","usb.macnet.mode",requested,cJSON_IsTrue(jget(native,"available"))&&!busy&&strcmp(phase,"recovery_failed"),"使用数据线直连 Mac，无需安装驱动；切换会短暂重建 USB 连接，保留 ADB。关闭可恢复原厂模式。");
+ const char *native_label=busy?"正在应用":!strcmp(phase,"recovery_failed")?"恢复未完成，请通过 Wi-Fi 检查":!strcmp(phase,"failed")?"启用失败，已恢复原厂模式":active?"已启用 · ECM":requested?"等待 USB 就绪":cJSON_IsTrue(jget(native,"available"))?"关闭 · 原厂 USB 模式":"此固件暂不支持";
+ cJSON_ReplaceItemInObject(i,"value",cJSON_CreateString(native_label));cJSON_AddBoolToObject(i,"confirm",1);
+ item(s,"macnet.help","Mac 连接说明","info","开启一次后记住选择；Mac 网络设置显示 ZTE Mobile Broadband。无法上网时检查原厂上网认证。",NULL,0,NULL);
+ if(requested||busy){cJSON *role_item=cJSON_GetArrayItem(jget(s,"items"),0);cJSON_ReplaceItemInObject(role_item,"enabled",cJSON_CreateBool(0));cJSON_ReplaceItemInObject(role_item,"reason",cJSON_CreateString("请先关闭 Mac USB 联网，再设置外接网卡"));}
+ cJSON_Delete(native);
  if(!strcmp(port_state,"WAIT_ADAPTER")){
   const char*summary=!known?"USB 状态未知":!cJSON_IsTrue(jget(mac,"bound"))?"USB 未就绪":!cJSON_IsTrue(jget(mac,"configured"))?"等待电脑识别":!cJSON_IsTrue(jget(mac,"carrier"))?"USB 未联网":!cJSON_IsTrue(jget(mac,"bridged"))?"USB 未接入内网":"USB 内网已连接";
   cJSON_ReplaceItemInObject(d,"usb_status",cJSON_CreateString(summary));
@@ -392,6 +407,7 @@ static cJSON *dispatch(const cJSON *r){const char *a=jstr(r,"action");cJSON *arg
  if(!fixture){
   cJSON*standby=standby_action(a,args);if(standby)return standby;
   if(!strcmp(a,"maintenance.tick")){cJSON*r=reply(1,"后台采样完成");cJSON*l=ledger_tick(),*c=charge_tick();int ok=cJSON_IsTrue(jget(l,"ok"))&&cJSON_IsTrue(jget(c,"ok"));cJSON_ReplaceItemInObject(r,"ok",cJSON_CreateBool(ok));cJSON_AddItemToObject(r,"usage",l);cJSON_AddItemToObject(r,"charge",c);return r;}
+  if(!strcmp(a,"usb.power_role")){cJSON*n=usb_macnet_owner("status");int blocked=cJSON_IsTrue(jget(n,"enabled"))||!strcmp(jstr(n,"phase"),"switching")||!strcmp(jstr(n,"phase"),"restoring")||!strcmp(jstr(n,"phase"),"queued");cJSON_Delete(n);if(blocked)return reply(0,"请先关闭 Mac USB 联网，再切换供电方向");}
   cJSON *d=diagnostics_action(a,args);if(d)return d;d=ledger_action(a,args);if(d)return d;d=charge_action(a,args);if(d)return d;d=power_role_action(a,args);if(d)return d;d=radio_tools_action(a,args);if(d)return d;
  }
  if(!fixture){cJSON *advanced=control_advanced_action(a,args);if(advanced)return advanced;}
@@ -400,7 +416,8 @@ static cJSON *dispatch(const cJSON *r){const char *a=jstr(r,"action");cJSON *arg
 #ifdef HAVE_CLASH_CONTROL
  if(!fixture){cJSON *cr=control_clash_action(a,args);if(cr)return cr;}
 #endif
- if(!strcmp(a,"usb.role")){const char*role=jstr(args,"role");if(strcmp(role,"AUTO")&&strcmp(role,"LAN"))return reply(0,"请选择 AUTO 或 LAN");return usb_role_run(role);}if(!strcmp(a,"usb.macnet.trial")||!strcmp(a,"usb.macnet.enable")||!strcmp(a,"usb.macnet.restore"))return reply(0,"USB 切换与恢复尚未通过实机验收，未修改 USB");if(!strcmp(a,"internet.profile"))return reply(0,"上网出口编排尚需迁移验收；未修改路由");return reply(0,"不支持的操作");}
+ if(!strcmp(a,"usb.macnet.mode")){int enabled;if(!boolarg(args,"enabled",&enabled))return reply(0,"请选择开启或关闭");return usb_macnet_owner(enabled?"enable":"disable");}
+ if(!strcmp(a,"usb.role")){cJSON*n=usb_macnet_owner("status");int blocked=cJSON_IsTrue(jget(n,"enabled"))||!strcmp(jstr(n,"phase"),"queued")||!strcmp(jstr(n,"phase"),"switching")||!strcmp(jstr(n,"phase"),"restoring");cJSON_Delete(n);if(blocked)return reply(0,"请先关闭 Mac USB 联网，再设置外接网卡");const char*role=jstr(args,"role");if(strcmp(role,"AUTO")&&strcmp(role,"LAN"))return reply(0,"请选择 AUTO 或 LAN");return usb_role_run(role);}if(!strcmp(a,"usb.macnet.trial")||!strcmp(a,"usb.macnet.enable")||!strcmp(a,"usb.macnet.restore"))return reply(0,"旧 USB 试验入口已停用，请使用 Mac USB 联网开关");if(!strcmp(a,"internet.profile"))return reply(0,"上网出口编排尚需迁移验收；未修改路由");return reply(0,"不支持的操作");}
 int main(int argc,char **argv){signal(SIGPIPE,SIG_IGN);
  if(argc==3&&!strcmp(argv[1],"--fixture")){FILE *f=fopen(argv[2],"rb");if(f){char b[131072];size_t n=fread(b,1,sizeof(b)-1,f);b[n]=0;fclose(f);fixture=cJSON_Parse(b);}if(!fixture){puts("{\"ok\":false,\"message\":\"无效的测试 fixture\"}");return 0;}}
  else if(argc!=1){puts("{\"ok\":false,\"message\":\"只支持标准输入 JSON 请求\"}");return 0;}

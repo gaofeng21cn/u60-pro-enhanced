@@ -22,6 +22,9 @@ STATE_FILES = {
     'data/u60-panel/tailscale-mode': 'tun\n',
     'data/u60-panel/standby-mode': 'normal\n',
     'data/u60-panel/usb-role': 'LAN\n',
+    'data/u60-panel/usb-macnet-enabled': '0\n',
+    'data/u60-panel/usb-macnet-private/factory-usb-switch.sh': 'private original\n',
+    'data/u60-panel/clash-autostart': '0\n',
     'data/u60-panel/compat-mode': 'b31-ui-first\n',
     'data/u60-clash/config.yaml': 'secret: "not-a-real-secret"\nmode: rule\n',
     'data/u60-clash/panel-prefs.json': '{"favorites":["示例"],"recents":[],"delays":{}}\n',
@@ -85,7 +88,7 @@ class PortableUpgrade(unittest.TestCase):
             self.put(payload / 'init' / name, '#!/bin/sh\ncase "$1" in start) exit 0;; restart) exit 0;;esac\n')
         # These files did not exist before the NCM candidate release. Their
         # absence is part of the rollback target, not an incomplete backup.
-        for name in ['usb-ncm-composition.sh', 'usb-ncm-trial.sh']:
+        for name in ['usb-ncm-composition.sh', 'usb-ncm-trial.sh', 'usb-macnet-owner.sh', 'usb-macnet-hook.sh']:
             self.put(payload / 'data/u60-panel' / name, '#!/bin/sh\nexit 1\n')
         self.put(payload / 'init/u60-ncm-trial', '#!/bin/sh\nexit 1\n')
         # Installed device: same programs, plus the state and the first-install backup.
@@ -231,6 +234,12 @@ else:
         self.assertIn('another device', r.stderr)
         self.assertEqual((self.target / 'data/u60-panel/network-profile').read_text(), 'clash\n')
 
+    def test_refuses_upgrade_while_native_usb_is_enabled(self):
+        self.put(self.target / 'data/u60-panel/usb-macnet-enabled', '1\n')
+        r = self.run_upgrade('--check')
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('Turn off Mac USB networking', r.stderr)
+
     def test_refuses_a_package_that_adds_an_unexpected_file(self):
         self.put(self.pkg / 'payload/data/u60-panel/panel-new-daemon', '#!/bin/sh\nexit 0\n')
         self.hash_package()
@@ -292,7 +301,7 @@ else:
         self.assertEqual((backup / 'data/u60-panel/u60-panel').read_text(),
                          self.programs['data/u60-panel/u60-panel'])
         manifest = (backup / 'BACKUP-SHA256SUMS').read_text()
-        for name in ['usb-ncm-composition.sh', 'usb-ncm-trial.sh']:
+        for name in ['usb-ncm-composition.sh', 'usb-ncm-trial.sh', 'usb-macnet-owner.sh', 'usb-macnet-hook.sh']:
             self.assertTrue((self.target / 'data/u60-panel' / name).is_file())
             self.assertIn('  data-missing/u60-panel/' + name + '\n', manifest)
         self.assertIn('  init-missing/u60-ncm-trial\n', manifest)
@@ -327,7 +336,7 @@ else:
         self.assertIn('restoring the previous programs', r.stderr)
         self.assertIn('Previous programs restored', r.stderr)
         self.assertNotIn('Automatic rollback did not complete', r.stderr)
-        for name in ['usb-ncm-composition.sh', 'usb-ncm-trial.sh']:
+        for name in ['usb-ncm-composition.sh', 'usb-ncm-trial.sh', 'usb-macnet-owner.sh', 'usb-macnet-hook.sh']:
             self.assertFalse((self.target / 'data/u60-panel' / name).exists())
         self.assertFalse((self.target / 'etc/init.d/u60-ncm-trial').exists())
         self.assertEqual((self.target / 'data/u60-panel/u60-panel').read_text(),

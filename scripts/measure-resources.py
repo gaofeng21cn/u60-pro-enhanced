@@ -34,6 +34,7 @@ awk '/^MemAvailable:/ {print "mem_available", $2}' /proc/meminfo
 awk '{print "uptime", $1}' /proc/uptime
 for n in mihomo tailscaled u60-panel panel-web; do
  for p in $(pidof "$n" 2>/dev/null); do
+  awk -v who="$n" -v pid="$p" '{print "member", who, pid, $22}' /proc/$p/stat 2>/dev/null
   awk -v who="$n" '/^VmRSS:/ {print "proc", who, "rss_kb", $2}' /proc/$p/status 2>/dev/null
   awk -v who="$n" '/^Threads:/ {print "proc", who, "threads", $2}' /proc/$p/status 2>/dev/null
   awk -v who="$n" '{print "proc", who, "ticks", $14+$15}' /proc/$p/stat 2>/dev/null
@@ -52,10 +53,14 @@ def parse(out):
     names = {}
     for line in out.splitlines():
         parts = line.split()
+        if len(parts) == 4 and parts[0] == 'member':
+            names.setdefault(parts[1], {}).setdefault('members', []).append(':'.join(parts[2:]))
+            continue
         if len(parts) == 4 and parts[0] == 'proc':
             _, who, metric, raw = parts
             try:
-                names.setdefault(who, {})[metric] = float(raw)
+                group = names.setdefault(who, {})
+                group[metric] = group.get(metric, 0) + float(raw)
             except ValueError:
                 pass
             continue
@@ -68,7 +73,18 @@ def parse(out):
             continue
         values[key] = value
     values['processes'] = names
+    for metrics in names.values():
+        metrics['members'] = sorted(metrics.get('members', []))
     return values
+
+
+def tick_delta(previous, current):
+    if previous.get('members') != current.get('members'):
+        return None
+    if 'ticks' not in previous or 'ticks' not in current:
+        return None
+    delta = current['ticks'] - previous['ticks']
+    return delta if delta >= 0 else None
 
 
 def main():
@@ -110,7 +126,10 @@ def main():
         before = first.get('processes', {}).get(name, {})
         if 'ticks' not in metrics or 'ticks' not in before or total_delta <= 0:
             continue
-        share = (metrics['ticks'] - before['ticks']) / total_delta
+        delta = tick_delta(before, metrics)
+        if delta is None:
+            continue  # restarts or membership changes invalidate cumulative deltas
+        share = delta / total_delta
         cpu[name] = round(share * cores * 100, 2)
     timeline = [first] + samples
     for previous, current in zip(timeline, timeline[1:]):
@@ -121,7 +140,10 @@ def main():
             was = previous.get('processes', {}).get(name, {}).get('ticks')
             if was is None or 'ticks' not in metrics:
                 continue
-            value = (metrics['ticks'] - was) / step * cores * 100
+            delta = tick_delta(previous['processes'][name], metrics)
+            if delta is None:
+                continue
+            value = delta / step * cores * 100
             peak_cpu[name] = max(peak_cpu.get(name, 0), value)
     peak_cpu = {k: round(v, 2) for k, v in peak_cpu.items()}
 

@@ -5,6 +5,7 @@ set -u
 
 ROOT="${PROFILE_ROOT:-/data/u60-panel}"
 STATE="$ROOT/network-profile"
+CORE_INTENT="$ROOT/clash-autostart"
 LOCK="${PROFILE_LOCK:-/tmp/u60-network-profile.lock}"
 IPT="${IPTABLES:-iptables}"
 IP6T="${IP6TABLES:-ip6tables}"
@@ -34,7 +35,18 @@ write_state() {
 	(umask 022; printf '%s\n' "$1" > "$tmp") || { rm -f "$tmp"; return 1; }
 	mv -f "$tmp" "$STATE"
 }
-unlock() { rm -f "$LOCK/owner"; rmdir "$LOCK" 2>/dev/null || true; }
+write_core_intent() {
+ tmp_intent="$CORE_INTENT.tmp.$$"
+ (umask 077; printf '%s\n' "$1" > "$tmp_intent") && mv -f "$tmp_intent" "$CORE_INTENT"
+}
+unlock() {
+ result=$?
+ if [ "$result" -ne 0 ] && [ "${intent_changed:-0}" = 1 ]; then
+  if [ "$intent_before" = missing ]; then rm -f "$CORE_INTENT";
+  else write_core_intent "$intent_before" || echo 'Could not restore startup preference' >&2; fi
+ fi
+ rm -f "$CORE_INTENT.tmp.$$" "$LOCK/owner"; rmdir "$LOCK" 2>/dev/null || true
+}
 lock() {
 	if mkdir "$LOCK" 2>/dev/null; then
 		echo $$ > "$LOCK/owner"; trap unlock EXIT INT TERM HUP; return 0
@@ -279,13 +291,33 @@ verify)
 		"$p" "$tcp" "$dns" "$reject" "$guard" "$v6rules" "$v6route"
 	exit 0
 	;;
-clash|direct|tailscale|clash-start|clash-enable|clash-stop|standby-resume) ;;
+clash|direct|tailscale|clash-start|clash-enable|clash-stop|clash-boot|standby-resume) ;;
 *) say '{"ok":false,"error":"invalid_action"}'; exit 2;;
 esac
 if [ -f "${PROFILE_STANDBY_ACTIVE:-/tmp/u60-standby/active}" ] && [ "$action" != standby-resume ]; then
  say '{"ok":false,"error":"standby_transition"}';exit 75
 fi
 lock || { say '{"ok":false,"error":"busy"}'; exit 3; }
+intent_before=missing
+if [ -e "$CORE_INTENT" ]; then
+ intent_before=$(cat "$CORE_INTENT" 2>/dev/null)
+ case "$intent_before" in 0|1) ;; *) say '{"ok":false,"error":"invalid_startup_preference"}'; exit 2;; esac
+fi
+if [ "$action" = clash-boot ]; then
+ # A configuration is not consent to restart a stopped core. For installations
+ # without a saved choice, only an active Clash profile implies boot intent.
+ if [ "$intent_before" = 0 ] || { [ "$intent_before" = missing ] && [ "$(read_state)" != clash ]; }; then
+  say '{"ok":true,"started":false,"reason":"disabled_at_boot"}'; exit 0
+ fi
+ action=clash-start
+fi
+case "$action" in
+ clash-start|clash-enable|clash-stop)
+  intent_next=1; [ "$action" != clash-stop ] || intent_next=0
+  write_core_intent "$intent_next" || { say '{"ok":false,"error":"startup_preference_write_failed"}'; exit 5; }
+  intent_changed=1
+  ;;
+esac
 if [ "$action" = standby-resume ];then
  action=clash-start
  current_pid=$(cat "$CLASH_PID" 2>/dev/null || true)

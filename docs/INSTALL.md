@@ -14,7 +14,7 @@ adb shell "ubus -t 5 call zwrt_zte_mdm.api get_zwrt_common_info '{}' | jsonfilte
 
 1. 阅读 README 和[验证范围与风险](VALIDATION.md)；自行备份必要配置，确保知道如何通过 USB ADB 恢复。
 2. 自行启用 root ADB，安装 Google 官方 Android Platform Tools。解锁方法参考社区来源，兼容性自行核对；本项目不执行解锁，也不下载刷机固件。
-3. USB 数据线直接连接电脑，设备保持亮屏；拔下 USB 网卡，电脑保留其他可用网络用于下载依赖。首次安装保持现有 USB/ADB 组合；设备默认使用原厂 RNDIS。Mac 在此流程中通过 USB ADB 管理设备；原生 USB 上网尚未通过验收，保留的 TetherKit 降级材料也不代表已经可用，详见 README 的 Mac 连接说明。不要手动切换 USB 组合，也不要远程跨 Tailscale 执行首次安装。
+3. USB 数据线直接连接电脑，设备保持亮屏；拔下 USB 网卡，电脑保留其他可用网络用于下载依赖。首次安装保持现有 USB/ADB 组合；设备默认使用原厂 RNDIS。Mac 在此流程中通过 USB ADB 管理设备；安装后可在增强界面开启原生 ECM＋ADB 的 Mac USB 联网，具体固件限制与验证范围见 [Mac USB 说明](MACOS-RNDIS.md)。不要手动切换 USB 组合，也不要远程跨 Tailscale 执行首次安装。
 4. `adb devices` 只连接一台待安装设备；`/data` 至少有 400 MB 可用空间。
 
 macOS/Linux 使用终端；Windows 可用 Python 3 与 `adb.exe`，Windows 完整流程尚未实测。若 adb 不在 PATH，后续每条命令加 `--adb /实际路径/adb`；多设备加 `--serial 目标序列号`，不要把它写到公开 issue 里。
@@ -23,7 +23,7 @@ macOS/Linux 使用终端；Windows 可用 Python 3 与 `adb.exe`，Windows 完�
 
 ### 从本仓库源码构建
 
-可下载本仓库 [v0.1.15-experimental 安装包](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.15-experimental)，下载用户不需要编译器。以下是开发者构建方式。构建依赖 Zig 0.14.1、Go、Python 3 和 Git，主机测试还需 C 编译器和 Node.js。**请显式使用 Zig 0.14.1**：0.16 会构建失败。
+可下载本仓库 [v0.1.16-experimental 安装包](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.16-experimental)，下载用户不需要编译器。以下是开发者构建方式。构建依赖 Zig 0.14.1、Go、Python 3 和 Git，主机测试还需 C 编译器和 Node.js。**请显式使用 Zig 0.14.1**：0.16 会构建失败。
 
 ```sh
 sh scripts/build.sh
@@ -42,7 +42,7 @@ python3 scripts/package.py
 先进入安装包目录。本仓库构建产物位于 `dist/u60-pro-enhanced-<版本>/`（构建后可用 `ls dist/` 查看实际目录名），使用上游 Release 时就是解压出来的同名目录。
 
 ```sh
-cd dist/u60-pro-enhanced-v0.1.15-experimental
+cd dist/u60-pro-enhanced-v0.1.16-experimental
 python3 prepare.py
 ```
 
@@ -51,6 +51,8 @@ python3 prepare.py
 ## 检查、安装与启动
 
 ### 已经装过本项目的设备
+
+升级前先在界面关闭 Mac USB 联网，等待原厂模式恢复；升级器会拒绝替换仍挂载的 USB wrapper。升级完成后按需重新开启。
 
 不要重复执行首次安装：安装器会拒绝覆盖已有目录。已有安装先进入准备阶段生成的私有目录（默认与安装包同级的 `u60-prepared-private/`），再上传材料并升级：
 
@@ -61,7 +63,7 @@ python3 deploy-from-computer.py upgrade
 
 `upgrade-check` 会把经过校验的安装材料上传到 `/data/u60-packages/`，随后检查固件、设备身份、已有安装记录、当前版本对应的首次安装备份或上一轮升级备份，以及可用空间；它不替换已安装程序、不重启服务，也不构成升级授权。`upgrade` 只替换程序与网页资源，逐个文件先备份哈希再替换、替换后逐字节核对，然后分别重启网页和屏幕并回读；代理配置、订阅、节点收藏与最近使用、Tailscale 身份和各项本机选择都不改动。任何一步失败会自动恢复上一版本程序，备份保留在 `/data/u60-upgrade-backups/<release>`。
 
-B31 开机后 USB 需要等待原厂 ConfigFS gadget 完成重新枚举；ADB 在这段时间暂时消失属于预期现象。当前版本不执行 USB 组合切换，启动钩子会延迟检查网页服务并在失败时有限重试；不要用旧版 `usb_switch` 或向 `/sys/class/android_usb` 写入开关来“恢复”连接。
+B31 开机后 USB 需要等待原厂 ConfigFS gadget 完成重新枚举；ADB 在这段时间暂时消失属于预期现象。首装不启用 Mac 模式；用户开启后由原厂 USB owner 协调恢复 ECM＋ADB。启动钩子会延迟检查网页服务并在失败时有限重试；请使用正式 Mac USB 联网开关，不要手动调用通用组合脚本或向 `/sys/class/android_usb` 写值。
 
 准备升级包时如果设备已经挂载增强网页，`prepare.py` 会因原厂页面指纹不符而拒绝：先运行 `/etc/init.d/u60-web stop` 让原厂页面重新可见，准备完成后再 `/etc/init.d/u60-web start`。
 
@@ -79,6 +81,8 @@ python3 deploy-from-computer.py start
 `check` 把本地经过校验的安装材料上传到 `/data/u60-packages/` 并只读检查兼容性；`install` 写入新程序与启动项、保存原厂 `/etc/rc.local`，但此时不启动服务；`start` 才启动屏幕与网页扩展。B31 首装仅启动屏幕与网页；用户主动选择 USB 角色后启动协调服务并保存启用意图，接力按独立的开机连接选项恢复。默认仍不启用深度待机；B28 保持原有基础启动行为。校验失败不要强制继续。
 
 先实际测试屏幕、电源键、原厂网页和原有热点，再分别验证网络功能。
+
+使用需要终端认证的内置 SIM 时，先在原厂首页的“上网认证”中为当前电脑/手机完成运营商认证；后台管理员登录不能替代此步骤。未认证时，设备本机请求或代理请求可能成功，但热点客户端直连仍被原厂规则阻断。不要通过删除认证规则处理；更换电脑、随机 MAC 或新增 USB 网口后可能需要重新认证。
 
 初始不含运行中的 Clash 配置或 Tailscale 身份。充电能力与 Wi-Fi 密码加密写入能力没有移植开发机验收标记；相应按钮可能显示“待验证”并拒绝操作，这是公开版本明确保留的限制。不要从他人设备复制验证标记。
 

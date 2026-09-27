@@ -89,8 +89,19 @@ with tempfile.TemporaryDirectory(prefix='u60-control-test-') as tmp:
   host={'ok':True,'mode':'rndis' if phase=='restored' else 'ncm','trial_state':phase,'ncm_composition':True}
   r=call('state',patch={'usb.macnet.status':host})
   items=next(x['items'] for x in r['sections'] if x['id']=='usb')
-  trial=next(x for x in items if x['id']=='macnet.trial')
-  assert not trial['enabled'] and not trial.get('action') and not trial.get('choices')
+  trial=next(x for x in items if x['id']=='macnet.enabled')
+  assert not trial['enabled'] and trial['action']=='usb.macnet.mode'
+ for enabled in [False,True]:
+  r=call('usb.macnet.mode',{'enabled':enabled});assert r['ok'] and r['fixture_write_count']==1
+ for bad in ['false',1,None]:
+  r=call('usb.macnet.mode',{'enabled':bad});assert not r['ok'] and r['fixture_write_count']==0
+ for phase in ['switching','queued','restoring','enabled','failed']:
+  native={'ok':True,'available':True,'enabled':phase=='enabled','active':phase=='enabled','phase':phase}
+  r=call('state',patch={'usb.macnet.owner':native})
+  toggle=next(i for s in r['sections'] if s['id']=='usb' for i in s['items'] if i['id']=='macnet.enabled')
+  assert toggle['enabled']==(phase in ['enabled','failed'])
+  r=call('usb.role',{'role':'AUTO'},{'usb.macnet.owner':native})
+  assert r['ok']==(phase=='failed')
  for action in ['start','confirm','restore']:
   r=call('usb.macnet.trial',{'action':action},{'ncm_action_ok':True});assert not r['ok'] and r['fixture_write_count']==0
  r=call('usb.macnet.trial',{'action':'bad;command'});assert not r['ok'] and r['fixture_write_count']==0

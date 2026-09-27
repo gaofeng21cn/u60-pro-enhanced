@@ -13,6 +13,10 @@ BACKUP="/data/u60-install-backups/$ID"
 [ -s "$BACKUP/rc.local" ]
 [ "$(grep -c '^(/data/u60-panel/portable-boot.sh) &$' /etc/rc.local)" = 1 ]
 sh -n "$BACKUP/rc.local"
+if grep -F ' /sbin/usb/compositions/usb_switch ' /proc/mounts >/dev/null || [ "$(cat /data/u60-panel/usb-macnet-enabled 2>/dev/null || true)" = 1 ];then
+ echo 'Turn off Mac USB networking through its UI before restoring boot' >&2
+ exit 1
+fi
 for name in u60-usb-isolate u60-usb-role u60-wifi-relay u60-standby u60-web;do
  [ ! -x "/etc/init.d/$name" ] || "/etc/init.d/$name" disable
 done

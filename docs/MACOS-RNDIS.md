@@ -1,99 +1,40 @@
-# Mac USB 直连：ECM、NCM 与 RNDIS
+# Mac USB 直连
 
-## 路线决策
+## 使用方式
 
-路线顺序固定为三层：先验证原厂 ECM 的 Mac 业务，再研究 NCM，最后保留 TetherKit 的 RNDIS 备用路径。B31 已完成一次 ECM 业务验证；原生 Mac 出现 `ZTE Mobile Broadband`，DHCP、U60 管理页、Google 204 和 Cloudflare 200 均通过，TLS 校验为 0。试验后的 ADB/原厂组合恢复尚未通过，因此 ECM 还不能作为 Release 默认能力。
+B31 的“Mac USB 联网”通过原生 ECM 提供 USB 网络，Mac 无需安装驱动、TetherKit 或终端脚本。使用支持数据传输的 USB 线连接电脑，在增强网页“网络 → USB 数据线直连”或小屏“网络 → USB”开启 **Mac USB 联网**。USB 连接会短暂重建；开关保存选择，下次启动等待原厂 USB 就绪后恢复。
 
-原生 ECM/NCM 必须同时满足 Mac 原生网卡枚举、DHCP、U60 管理地址、Google/Cloudflare HTTPS、拔插/冷启动和 ADB 保持或恢复；通过其中一项不能发布。实现必须接入原厂 `/sbin/usb_composition` 的 composition owner，不能停用 `zte_ubus_bsp_usb`、`zte_usb_switch`，也不能把一次手工 ConfigFS 试验当成产品能力。在恢复链完成前，普通用户开关保持关闭。
+Mac 的“系统设置 → 网络”应出现 `ZTE Mobile Broadband`，使用 DHCP 自动取得地址。设备界面分别显示开关意图、正在应用状态、实际协议和链路；“USB 内网已连接”只证明本地链路，互联网仍取决于上游、代理策略和运营商认证。使用需要终端认证的 SIM 时，新 USB 网口可能需要在原厂“上网认证”页完成一次认证，后台管理员登录不能替代它。
 
-TetherKit GUI 是原生路线被证伪后的降级方案：U60 保持原厂 RNDIS + ADB 组合，Mac 首次安装官方 GUI 并授权一次 privileged helper，之后由 helper 创建和维护 `feth`。它不是原生能力，也不改变原生 ECM/NCM 的验收结论。
+关闭同一个开关恢复原厂 RNDIS 模式。使用外接 USB 网卡或切换 USB-C 供电方向前，先关闭 Mac USB 联网；程序升级也会检查这一条件，避免替换仍被原厂 owner 调用的挂载脚本。首装默认关闭，仅开放原厂脚本指纹与内核匹配的 B31，B28 不沿用这一结论。
 
-U60 B31 出厂 USB gadget 使用 RNDIS。macOS 没有原生 RNDIS 网络接口驱动，因此 Mac 不会像 Windows 一样自动出现网卡。项目保留 U60 原厂 RNDIS、ADB、诊断和其他 USB function 不变，在 Mac 端使用上游 [TetherKit](https://github.com/XiaoMiku01/TetherKit) 以用户态 libusb + `feth` 虚拟网卡接入。
+如果 Mac 同时有多个网络，实际默认出口遵循 macOS 的网络服务顺序；新增网口不会由本项目强制取代其他网络。需要优先走 U60 时，在 macOS 网络设置中调整服务顺序。验收采用绑定 USB 网口的 HTTPS 请求，排除实际走 Wi-Fi 的假阳性。
 
-已核对的一台 B31 内核编译了 Linux NCM function，本机 Mac 也加载了原生 NCM 驱动；原厂合法组合列表包含 `9059 = RNDIS + DIAG + ADB + ECM`，不包含项目候选的 `908C NCM`。一次 9059 实机切换已经证明 ECM 的 Mac 业务链路成立，但自动恢复没有让 ADB 重新枚举，随后拔插仍未恢复 USB 枚举。这个结果证明“Mac 原生 USB 网络”可行，也证明当前恢复监督还不够安全；不能把它发布成无感能力。
+## 实现与恢复边界
 
-这条路径的安全边界是：助手只在 Mac 上声明 RNDIS 控制/数据接口；不会向 U60 ConfigFS 写入，不会切换 `gsi.rndis`、ECM 或 NCM，不会执行 adb 写入。TetherKit 上游代码也明确避免 `libusb_set_auto_detach_kernel_driver`，以免触发整设备重新枚举。停止助手后，U60 仍保持原厂 USB 组合，ADB 不需要恢复。
+当前实现使用 **原生 ECM＋ADB**。ECM 已满足 Mac 原生网络目标，NCM 不再是交付该目标的前置条件；NCM 实验入口继续停用。TetherKit 仅作为旧 RNDIS 的可选备用，不是当前 Mac 原生路径的依赖。
 
-## 安装与连接
+B31 实际 USB owner 是中兴内核、`zte_ubus_bsp_usb` 和 `/sbin/usb/compositions/usb_switch`。项目只在原厂脚本调用边界临时挂载一个小型 wrapper：在已知调试组合中将 RNDIS 网络 function 换为 ECM，保留原来的诊断、串口、存储、ADB 等参数和功能。原厂文件不被覆盖，备份只存于本机私有目录；不写固件分区、不直接修改 ConfigFS、不停止原厂 owner 或 adbd。
 
-在 Release 包的 `macos/` 目录执行。正常用户推荐 GUI 路径：
+切换经原厂 `usb_op` 请求接口交给内核协调。它是异步操作，程序必须回读 product ID、全部 function 链接、UDC、ADB 进程和桥接状态后才显示启用；仅写入请求值不算成功。独立于网页、SSH 和 ADB 会话的监督进程持有操作锁与单调时钟期限，失败后清除启用意图并尝试恢复原厂完整快照。若内核写入本身未返回，则停止新请求并显示恢复未完成，不能宣称软件可解除任何内核故障。
+
+开发机另有经 Wi-Fi 验证的密钥 SSH 维护通道。这是该设备的私有配置，不随公开安装包分发。普通用户仍通过热点网页关闭开关和检查状态；网页可打开本身不等同于具备 root 恢复能力。
+
+## 验证范围
+
+一台 B31 已在 Mac 上完成 ECM 原生枚举、DHCP、管理页 HTTP 200、Google 204、Cloudflare 200，TLS 校验均为 0；ECM 期间主机侧 ADB 命令成功。通过中兴原厂 owner 恢复后，完整原厂 USB 功能组合、主机 ADB 和独立 SSH 均正常，不需要拔线或重启。
+
+这些结果替代旧 9059 路线的失败恢复结论，但不证明所有设备、线材或 USB 集线器都已兼容。正式开关、拔插、冷启动及其他设备的具体验收范围以 [验证记录](VALIDATION.md) 为准。旧 `usb-ecm-trial.sh`、`usb-ncm-trial.sh` 和旧 RPC 写入口保持停用，不能用它们启用新功能。
+
+## 原厂 RNDIS 的可选备用
+
+不支持原生开关的设备可以自行评估上游 [TetherKit](https://github.com/XiaoMiku01/TetherKit)。安装包 `macos/` 中的助手提供官方 GUI 安装和诊断；它需要在 Mac 上安装软件及授权特权组件，不能称为免安装方案。
 
 ```sh
 sh u60-rndis.sh install
 sh u60-rndis.sh gui
 ```
 
-`gui` 打开官方 TetherKit.app。首次运行在窗口中点击“安装特权组件”并输入一次 macOS 管理员密码；之后由上游 `tetherkit-helper` 创建和维护 `feth`/BPF，插拔 U60 时不需要再次运行本项目脚本。连接、DHCP、默认路由和停止操作在 TetherKit 窗口中完成。该一次授权发生在 Mac 上，不会写入 U60，也不会改变 ADB 或 USB composition。
+GUI 首次运行需要安装特权组件并输入 macOS 管理员密码；后续连接、DHCP 和停止由上游 GUI 管理。项目助手不读取或保存密码，不改变 U60 USB 组合。命令行 `doctor`、`list`、`status` 仅用于诊断；`start --route-all` 会显式修改 Mac 默认路由，停止后需自行核对原网络恢复。
 
-命令行路径仅用于诊断或没有 GUI 的环境：
-
-```sh
-sh u60-rndis.sh doctor
-sh u60-rndis.sh start
-sh u60-rndis.sh status
-```
-
-`install` 通过 Homebrew 安装上游 TetherKit GUI、`tetherkit-cli` 和依赖。GUI 首次运行会按上游标准流程安装一次特权 helper；项目助手不读取或保存管理员密码。CLI 的 `start` 仍会在当前终端请求 `sudo`，不适合作为无感连接路径。
-
-`doctor` 只读检查 macOS、TetherKit、`19d2:1404` U60 RNDIS 和 `feth` 创建前置 sysctl。它还会确认 U60 仍以原厂 RNDIS 出现；没有识别到设备时停止，不会改动任何一端。
-
-`start` 启动 `tetherkit-cli`，从日志读出系统侧 `feth` 接口，然后通过 macOS 的 DHCP 客户端获取 U60 地址。默认保留当前 Wi-Fi 默认路由，只建立可访问 U60 管理地址的有线接口。需要把 Mac 的默认出口切到 U60 时使用：
-
-```sh
-sh u60-rndis.sh start --route-all
-```
-
-这个参数只在 DHCP 返回网关后执行一次 macOS 默认路由切换。若 Mac 仍有其他网络，切换后的实际出口以 `route -n get default` 和真实 HTTPS 探测为准。
-
-停止连接：
-
-```sh
-sh u60-rndis.sh stop
-```
-
-助手只清理自己记录的 `feth` 地址和 TetherKit 进程。若手工启用了 `--route-all`，停止后按 macOS“网络”设置或重新连接原 Wi-Fi 恢复原默认出口；助手不会猜测并覆盖用户的其他网络服务。
-
-## 排障
-
-- `doctor` 提示未识别设备：确认使用支持数据传输的 USB 线、U60 已开机且仍是原厂 RNDIS；执行 `sh u60-rndis.sh list` 查看 TetherKit 枚举结果。
-- 有 `feth` 但没有地址：执行 `sh u60-rndis.sh status`，检查 `macos/u60-rndis` 日志；不要切换 U60 USB 组合。U60 管理地址默认是 `192.168.0.1`，可先从现有 Wi-Fi 访问确认设备仍在线。
-- 能访问 U60 但不能访问互联网：先确认 `--route-all` 是否需要，再分别检查 `route -n get default`、`ipconfig getifaddr <feth接口>` 和 `curl --interface <feth接口> https://www.google.com/generate_204`。这类失败属于 Mac 路由或 U60 数据面，不等于 ADB 或 USB gadget 损坏。
-- `claiming the RNDIS data interface failed`：停止其他 RNDIS 用户态程序或旧 HoRNDIS；不要安装内核扩展来“抢回”接口。
-
-## 证据范围
-
-本机 macOS 26.5.2 已真实枚举 U60 `19d2:1404` RNDIS，TetherKit `v0.1.5` 的 `--list` 能识别控制接口 0 和数据接口 1。这证明 Mac 端枚举和用户态接管的前置条件成立；DHCP、默认路由和真实 HTTPS 仍需在当前 U60 连接上单独验收。它不证明 ECM/NCM，也不改变 U60 原厂 RNDIS 的设备侧限制。
-
-TetherKit 由上游以 MIT 许可发布；本项目不打包、修改或重新发布 TetherKit 二进制。
-
-## NCM 诊断与恢复边界
-
-当前只开放只读诊断。试运行脚本的所有写动作、直接 composition 调用和普通界面的操作入口均停用；没有环境变量或标记文件可绕过。procd 服务没有开机启动项。
-
-```sh
-adb shell /data/u60-panel/usb-ncm-trial.sh status
-```
-
-此前的超时循环位于同步切换命令之后，不能覆盖切换命令本身阻塞的情况，不能宣称它提供独立回滚。后续实机切换必须先完成原厂 USB owner 协调、完整快照和独立监督恢复的验证，并实测不依赖 USB 的管理通道。不得停用原厂 USB owner 或绕过当前封锁。保留 ADB function 链接和内核存在 NCM 都不能代替这些证据。
-
-## 原生路线的实现依据
-
-[高通 Linux USB 文档](https://docs.qualcomm.com/bundle/publicresource/topics/80-80022-8/usb.html)列出 `908C NCM + ADB`；[ModalAI 的高通平台实例](https://docs.modalai.com/qgc-via-adb/)也展示了 NCM 与 ADB 共存。这些资料证明有可研究的实现路径，不证明中兴 B31 的驱动、端点和服务可以直接复用。B31 已回读的原厂组合目录没有 `908C`，USB ubus 对象仅公开读取接口；直接调用项目脚本不等于已取得原厂管理服务的协调权。
-
-后续先研究原厂组合服务与驱动的配合、最小 NCM＋ADB 组合和完整恢复过程；验证用的日志须在断开 USB 前由独立进程持久保存。原厂组合的持久化分支涉及闪存写入，不得用于本项目试验。切换阻塞时，独立监督只能提供诊断和有界恢复尝试，不能保证解除内核阻塞；必须另有已实测的非 USB 管理入口。
-
-B31 原厂脚本的参数依次为 `Pid`、`HSIC`、`PERSISTENT`、`IMMEDIATE`、`FROM_ADBD`。旧试验只传入四个参数，使第五项默认为 `n`，9059 脚本在该分支会主动结束 `adbd`；因此不能把旧调用当成保留 ADB 的路径。9059 的 ConfigFS 配置还在后台异步执行，外层命令退出不代表切换完成。补齐参数本身也不证明 ADB 能重新枚举，当前仍不开放切换。
-
-该 B31 的启动组合文件记录为 `90DB`，枚举出的 USB product ID 则为 `1404`；原厂组合目录没有同名 `1404` 脚本。恢复目标必须从原厂启动配置和实际组合共同核对，不能直接拿 product ID 当作 composition 名称。
-
-## ECM 诊断与恢复边界
-
-`usb-ecm-trial.sh` 仅允许 `status`；`start`、`supervise`、`confirm`、`restore` 和 `restore-trial` 均在任何设备命令或文件写入之前拒绝。网页 RPC 同样拒绝 USB 切换和恢复。旧事务文件及环境变量不能解除封锁，默认关闭的服务也不能启动 USB 写入。
-
-不能沿用 v0.1.14 的自动恢复声明：原代码把恢复目标默认设为 `9059`（仍是 ECM 混合组合），保存的原始链接没有用于恢复校验，缺少 `timeout` 时会无界调用，测试又错误地把同一组合编号模拟成切换开关。该版本的测试通过不构成恢复证据；当前版本已移除这段写入实现。
-
-只读诊断扫描全部 USB 配置，分别报告 RNDIS、ECM、NCM 与 ADB function。多个协议共存时显示“多协议组合”；网口 carrier 和桥接状态只表示链路，不能代替 DHCP、HTTPS 或主机侧 ADB 验收。没有 UDC 枚举时不显示网络已连接。
-
-原生路线继续优先研究原厂 ECM。再次测试前，必须取得独立的非 USB 管理命令通道、原厂组合脚本及切换失败日志，确认原始组合如何经原厂 owner 恢复；一个能打开的管理网页不等于可执行恢复命令。主机模拟、`ffs.adb` 链接和 `adbd` 进程都不能代替 Mac 端重新枚举与 ADB 命令成功。当前没有可向用户承诺的无感 USB 直连或自动恢复功能。
-
-开发设备已单独部署仅绑定 LAN 的 Dropbear 维护服务，使用每台设备独立的 SSH 密钥、固定主机公钥、禁用密码和端口转发。已通过 Wi-Fi 直接取得 root shell，验证服务重启后重连、错误密钥拒绝及 ADB 同时可用，并启用开机启动；整机冷启动尚未验收。该通道可以在 USB 不可用时执行诊断命令，但不证明内核 USB 故障能由软件恢复。它是单台设备的维护配置，不随本安装包分发，也不会向普通用户自动开放 root SSH。
+仅完成过 TetherKit 枚举前置检查，未把其 DHCP 和 HTTPS 算作已验收能力。上游软件采用 MIT 许可，本项目不分发其二进制。
