@@ -10,7 +10,7 @@ TetherKit GUI 是原生路线被证伪后的降级方案：U60 保持原厂 RNDI
 
 U60 B31 出厂 USB gadget 使用 RNDIS。macOS 没有原生 RNDIS 网络接口驱动，因此 Mac 不会像 Windows 一样自动出现网卡。项目保留 U60 原厂 RNDIS、ADB、诊断和其他 USB function 不变，在 Mac 端使用上游 [TetherKit](https://github.com/XiaoMiku01/TetherKit) 以用户态 libusb + `feth` 虚拟网卡接入。
 
-已核对的一台 B31 内核编译了 Linux NCM function，本机 Mac 也加载了原生 NCM 驱动；原厂合法组合列表包含 `9059 = RNDIS + DIAG + ADB + ECM`，不包含项目候选的 `908C NCM`。一次 9059 实机切换已经证明 ECM 的 Mac 业务链路成立，但自动恢复没有让 ADB 重新枚举，随后需要人工拔插恢复现场。这个结果证明“Mac 原生 USB 网络”可行，也证明当前恢复监督还不够安全；不能把它发布成无感能力。
+已核对的一台 B31 内核编译了 Linux NCM function，本机 Mac 也加载了原生 NCM 驱动；原厂合法组合列表包含 `9059 = RNDIS + DIAG + ADB + ECM`，不包含项目候选的 `908C NCM`。一次 9059 实机切换已经证明 ECM 的 Mac 业务链路成立，但自动恢复没有让 ADB 重新枚举，随后拔插仍未恢复 USB 枚举。这个结果证明“Mac 原生 USB 网络”可行，也证明当前恢复监督还不够安全；不能把它发布成无感能力。
 
 这条路径的安全边界是：助手只在 Mac 上声明 RNDIS 控制/数据接口；不会向 U60 ConfigFS 写入，不会切换 `gsi.rndis`、ECM 或 NCM，不会执行 adb 写入。TetherKit 上游代码也明确避免 `libusb_set_auto_detach_kernel_driver`，以免触发整设备重新枚举。停止助手后，U60 仍保持原厂 USB 组合，ADB 不需要恢复。
 
@@ -82,8 +82,12 @@ adb shell /data/u60-panel/usb-ncm-trial.sh status
 
 后续先研究原厂组合服务与驱动的配合、最小 NCM＋ADB 组合和完整恢复过程；验证用的日志须在断开 USB 前由独立进程持久保存。原厂组合的持久化分支涉及闪存写入，不得用于本项目试验。切换阻塞时，独立监督只能提供诊断和有界恢复尝试，不能保证解除内核阻塞；必须另有已实测的非 USB 管理入口。
 
-## ECM 维护事务
+## ECM 诊断与恢复边界
 
-v0.1.14 在安装包中保留了独立的 `usb-ecm-trial.sh` 维护事务，但普通界面仍不会启动它。事务开始前保存当前 ConfigFS 组合和 UDC，随后只调用原厂 `/sbin/usb_composition` owner；owner 命令在设备上有界等待，监督进程负责 90 秒业务确认窗口。取消、超时或进程退出都会调用原厂 owner 重建 FunctionFS，再回读 UDC 为 `configured`、`ffs.adb` 链接、ADB `ep0` 和 `adbd`。任一项未恢复都返回失败，不能把 ConfigFS 链接存在当作恢复成功。
+`usb-ecm-trial.sh` 仅允许 `status`；`start`、`supervise`、`confirm`、`restore` 和 `restore-trial` 均在任何设备命令或文件写入之前拒绝。网页 RPC 同样拒绝 USB 切换和恢复。旧事务文件及环境变量不能解除封锁，默认关闭的服务也不能启动 USB 写入。
 
-这条事务已经通过主机隔离 fixture 验证切换、确认和 owner 恢复，但尚未在拿回 ADB 的 B31 上完成真实自动恢复、拔插和冷启动验收。因此设备状态页继续显示“ECM · 已验业务，待恢复验收”，`switch_available` 保持 `false`。设备现场恢复只能通过 Wi-Fi 管理页或物理恢复完成，不能用匿名 UBus 请求绕过登录态。
+不能沿用 v0.1.14 的自动恢复声明：原代码把恢复目标默认设为 `9059`（仍是 ECM 混合组合），保存的原始链接没有用于恢复校验，缺少 `timeout` 时会无界调用，测试又错误地把同一组合编号模拟成切换开关。该版本的测试通过不构成恢复证据；当前版本已移除这段写入实现。
+
+只读诊断扫描全部 USB 配置，分别报告 RNDIS、ECM、NCM 与 ADB function。多个协议共存时显示“多协议组合”；网口 carrier 和桥接状态只表示链路，不能代替 DHCP、HTTPS 或主机侧 ADB 验收。没有 UDC 枚举时不显示网络已连接。
+
+原生路线继续优先研究原厂 ECM。再次测试前，必须取得独立的非 USB 管理命令通道、原厂组合脚本及切换失败日志，确认原始组合如何经原厂 owner 恢复；一个能打开的管理网页不等于可执行恢复命令。主机模拟、`ffs.adb` 链接和 `adbd` 进程都不能代替 Mac 端重新枚举与 ADB 命令成功。当前没有可向用户承诺的无感 USB 直连或自动恢复功能。

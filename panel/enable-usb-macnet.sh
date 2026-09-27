@@ -7,16 +7,43 @@ GADGET=/sys/kernel/config/usb_gadget/g1
 NET=/sys/class/net
 UDCS=/sys/class/udc
 
+# Inspect all configurations and keep each network function separate. A 9059
+# gadget contains both RNDIS and ECM; symlink order cannot select its protocol.
 mode=unknown
 adb=false
-for link in "$GADGET"/configs/c.1/f*; do
-  case "$(readlink "$link" 2>/dev/null || true)" in
-    */gsi.ecm|*/ecm.ecm) mode=ecm;;
-    */ncm.0) mode=ncm;;
-    */gsi.rndis|*/rndis.rndis) mode=rndis;;
-    */ffs.adb) adb=true;;
+rndis=false
+ecm=false
+ncm=false
+carrier=false
+bridged=false
+for link in "$GADGET"/configs/c.*/f*; do
+  function=$(readlink "$link" 2>/dev/null || true)
+  function=${function##*/}
+  case "$function" in
+    gsi.ecm|ecm.ecm) ecm=true; names='ecm0 usb0';;
+    ncm.0) ncm=true; names='usb0';;
+    gsi.rndis|rndis.rndis) rndis=true; names='rndis0';;
+    ffs.adb) adb=true; continue;;
+    *) continue;;
   esac
+  detected=$(cat "$GADGET/functions/$function/ifname" 2>/dev/null || true)
+  case "$detected" in
+    ''|'(unnamed net_device)'|*[!a-zA-Z0-9_.-]*) ;;
+    *) names="$detected";;
+  esac
+  for name in $names; do
+    if [ "$(cat "$NET/$name/carrier" 2>/dev/null || true)" = 1 ]; then
+      carrier=true
+      case "$(readlink "$NET/$name/master" 2>/dev/null || true)" in */br-lan) bridged=true;; esac
+    fi
+  done
 done
+count=0
+for protocol in rndis ecm ncm; do
+ case "$protocol" in rndis) present=$rndis;; ecm) present=$ecm;; ncm) present=$ncm;; esac
+ if [ "$present" = true ]; then mode=$protocol; count=$((count + 1)); fi
+done
+[ "$count" -le 1 ] || mode=mixed
 
 bound=false
 configured=false
@@ -25,22 +52,8 @@ case "$udc" in
   ''|*[!a-zA-Z0-9._-]*) ;;
   *) bound=true; [ "$(cat "$UDCS/$udc/state" 2>/dev/null || true)" != configured ] || configured=true;;
 esac
-
-carrier=false
-bridged=false
-case "$mode" in
-  ecm) names='ecm0 usb0'; detected=$(cat "$GADGET/functions/ecm.ecm/ifname" 2>/dev/null || true);;
-  ncm) names='usb0'; detected=$(cat "$GADGET/functions/ncm.0/ifname" 2>/dev/null || true);;
-  rndis) names='rndis0'; detected=$(cat "$GADGET/functions/gsi.rndis/ifname" 2>/dev/null || true);;
-  *) names=''; detected='';;
-esac
-case "$detected" in ''|'(unnamed net_device)'|*[!a-zA-Z0-9_.-]*) ;; *) names="$names $detected";; esac
-for name in $names; do
-  if [ "$(cat "$NET/$name/carrier" 2>/dev/null || true)" = 1 ]; then
-    carrier=true
-    case "$(readlink "$NET/$name/master" 2>/dev/null || true)" in */br-lan) bridged=true;; esac
-  fi
-done
+# Stale interface carrier is not an enumerated USB link.
+if [ "$configured" != true ]; then carrier=false; bridged=false; fi
 
 trial=idle
 TRIAL=/tmp/u60-ncm-trial
@@ -63,8 +76,8 @@ case "${1:-status}" in
   status)
     ok=false
     [ "$mode" = unknown ] || ok=true
-    printf '{"ok":%s,"mode":"%s","adb_function":%s,"bound":%s,"configured":%s,"carrier":%s,"bridged":%s,"switch_available":false,"ncm_present":%s,"ncm_composition":%s,"trial_state":"%s","ecm_present":%s,"ecm_trial_state":"%s"}\n' \
-      "$ok" "$mode" "$adb" "$bound" "$configured" "$carrier" "$bridged" "$ncm_present" "$ncm_composition" "$trial" "$ecm_present" "$ecm_trial"
+    printf '{"ok":%s,"mode":"%s","rndis_function":%s,"ecm_function":%s,"ncm_function":%s,"adb_function":%s,"bound":%s,"configured":%s,"carrier":%s,"bridged":%s,"switch_available":false,"ncm_present":%s,"ncm_composition":%s,"trial_state":"%s","ecm_present":%s,"ecm_trial_state":"%s"}\n' \
+      "$ok" "$mode" "$rndis" "$ecm" "$ncm" "$adb" "$bound" "$configured" "$carrier" "$bridged" "$ncm_present" "$ncm_composition" "$trial" "$ecm_present" "$ecm_trial"
     ;;
   enable|start|confirm|restore|restore-trial|rndis|invalid)
     printf '%s\n' '{"ok":false,"message":"USB 在线切换已停用；ECM 的 ADB 恢复保护尚未验证"}'

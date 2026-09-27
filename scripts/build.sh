@@ -3,6 +3,10 @@ set -eu
 cd "$(dirname "$0")/.."
 ZIG=${ZIG:-zig}
 GO=${GO:-go}
+[ "$("$ZIG" version)" = 0.14.1 ] || {
+ echo 'Build requires Zig 0.14.1; set ZIG to that executable. No artifacts changed.' >&2
+ exit 1
+}
 mkdir -p build/link
 cc() { "$ZIG" cc -target aarch64-linux-musl -O2 -s -Wall -Wextra "$@"; }
 cc -static -D__user= -I sdk -I panel/vendor panel/u60-panel.c panel/vendor/cJSON.c panel/vendor/qrcodegen.c -lm -o build/u60-panel

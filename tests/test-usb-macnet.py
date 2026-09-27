@@ -88,6 +88,36 @@ class UsbDiagnosticsTests(unittest.TestCase):
         self.assertFalse(status['bound'])
         self.assertFalse(status['configured'])
 
+    def test_mixed_protocols_and_adb_in_second_configuration(self):
+        self.configure('rndis', '0')
+        (self.gadget / 'configs/c.1/f6').unlink()
+        second = self.gadget / 'configs/c.2'
+        second.mkdir()
+        (second / 'f1').symlink_to('../../functions/gsi.ecm')
+        (second / 'f2').symlink_to('../../functions/ffs.adb')
+        fn = self.gadget / 'functions/gsi.ecm'
+        fn.mkdir(parents=True)
+        (fn / 'ifname').write_text('usb7')
+        nic = self.net / 'usb7'
+        nic.mkdir()
+        (nic / 'carrier').write_text('1')
+        (nic / 'master').symlink_to('../br-lan')
+        before = self.snapshot()
+        _, status = self.call('status')
+        self.assertEqual(status['mode'], 'mixed')
+        for key in ('rndis_function', 'ecm_function', 'adb_function', 'carrier', 'bridged'):
+            self.assertTrue(status[key], key)
+        self.assertFalse(status['ncm_function'])
+        self.assertEqual(before, self.snapshot())
+
+    def test_stale_carrier_without_enumeration_is_not_a_link(self):
+        self.configure()
+        (self.gadget / 'UDC').write_text('')
+        _, status = self.call('status')
+        self.assertFalse(status['configured'])
+        self.assertFalse(status['carrier'])
+        self.assertFalse(status['bridged'])
+
     def test_old_mutation_entry_points_cannot_reconfigure_usb(self):
         self.configure()
         before = self.snapshot()
