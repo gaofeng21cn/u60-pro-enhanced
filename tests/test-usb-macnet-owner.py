@@ -84,9 +84,11 @@ class NativeOwner(unittest.TestCase):
   self.command('flock','exit 0')
   mode=self.base/'sys/bus/platform/devices/a600000.ssusb/mode'
   mode.write_text('none\n');(self.root/'usb-macnet-enabled').write_text('1\n')
+  (self.g/'functions/gsi.ecm').rmdir()
   proc=subprocess.Popen(['sh',str(self.owner),'boot'],env=self.env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
   time.sleep(.3)
   self.assertEqual(self.op.read_text().strip(),'1');self.assertEqual(self.transitions,[])
+  (self.g/'functions/gsi.ecm').mkdir()
   mode.write_text('peripheral\n')
   out,err=proc.communicate(timeout=12);self.assertEqual(proc.returncode,0,err)
   self.assertTrue(json.loads(out)['ok'])

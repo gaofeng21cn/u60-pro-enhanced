@@ -15,9 +15,11 @@ EXPECTED=a02435921bf6340773967eb7764b685fef78964af7ae4260383ab5514ad9093e
 
 digest() { sha256sum "$1" 2>/dev/null | cut -d ' ' -f1; }
 mounted() { grep -F " $VENDOR " /proc/mounts >/dev/null; }
+platform_ok() {
+ [ "$(uname -r)" = 5.15.194-perf ] && [ "$(cat "$ROOT/compat-mode" 2>/dev/null)" = b31-ui-first ]
+}
 capable() {
- [ "$(uname -r)" = 5.15.194-perf ] || return 1
- [ "$(cat "$ROOT/compat-mode" 2>/dev/null)" = b31-ui-first ] || return 1
+ platform_ok || return 1
  [ -d "$G/functions/gsi.ecm" ] && [ -d "$G/functions/ffs.adb" ] || return 1
  if mounted; then
   [ "$(digest "$VENDOR")" = "$(digest "$HOOK")" ] || return 1
@@ -115,7 +117,7 @@ esac
 
 if [ "$action" = boot ]; then
  [ "$(cat "$FLAG" 2>/dev/null)" = 1 ] || exit 0
- capable || exit 1
+ platform_ok || exit 1
  mkdir -p "$R" || exit 1
  exec 8>"$R/boot-lock"
  flock -n 8 || exit 0
@@ -123,7 +125,7 @@ if [ "$action" = boot ]; then
  # A battery-powered boot may have no host. Retain intent and wait cheaply for
  # the first cable attachment instead of discarding the user's setting.
  while [ "$(cat "$FLAG" 2>/dev/null)" = 1 ]; do
-  if [ "$(cat /sys/bus/platform/devices/a600000.ssusb/mode 2>/dev/null)" = peripheral ] && links_ok gsi.rndis; then break; fi
+  if [ "$(cat /sys/bus/platform/devices/a600000.ssusb/mode 2>/dev/null)" = peripheral ] && capable && links_ok gsi.rndis; then break; fi
   if links_ok gsi.ecm; then phase enabled; exit 0; fi
   sleep 5
  done

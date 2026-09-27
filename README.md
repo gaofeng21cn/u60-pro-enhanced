@@ -2,7 +2,7 @@
 
 为中兴 U60 Pro（MU5250）国行 **B28 / B31** 提供原生小屏界面、原厂网页增强、Clash/Mihomo、Tailscale、Wi-Fi 接力与 USB 网口管理。保留原厂固件和管理页，双击电源键可切换界面。
 
-项目目标、实施顺序与完成标准见[产品计划](docs/PLAN.md)。先完成可靠联网、统一交互及恢复交付，再完成 Mac USB 直连；未验收能力不计入已完成。
+当前版本的能力边界和验收状态见[产品基线](docs/BASELINE.md)；目标与完成标准见[产品计划](docs/PLAN.md)。
 
 **当前版本：[v0.1.16-experimental](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.16-experimental)**。这是实验版：支持固件检查和设备身份绑定，不代表全部网络与硬件组合已经验收。安装前请阅读[验证范围](docs/VALIDATION.md)。B31 的 Mac 数据线直连采用原生 ECM＋ADB，无需安装 Mac 软件；在“网络 → USB 数据线直连”开启一次并保存选择。已验收项目与仍需实物验证的范围见下文。
 
