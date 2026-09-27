@@ -51,7 +51,7 @@ python3 deploy-from-computer.py start
 
 ## 已安装用户升级
 
-下载新包，重新为同一设备准备一个**新的私有目录**。设备已挂载增强网页时，先在准备期间临时停止网页覆盖层，结束后恢复：
+升级前先在增强界面关闭 **Mac USB 联网**，等待原厂 RNDIS＋ADB 恢复；升级器会检查这一条件。下载新包，重新为同一设备准备一个**新的私有目录**。设备已挂载增强网页时，先在准备期间临时停止网页覆盖层，结束后恢复：
 
 ```sh
 adb shell /etc/init.d/u60-web stop
@@ -92,7 +92,7 @@ Wi-Fi 接力支持 **2.4GHz 和非 DFS 的 5GHz 上游**，并非仅限 2.4GHz�
 
 在增强网页“网络 → USB 数据线直连”或小屏“网络 → USB”开启 **Mac USB 联网**。Mac 网络设置中会出现 `ZTE Mobile Broadband`，通过 DHCP 获取地址，不需要安装驱动或运行 Mac 命令。关闭同一开关恢复原厂 RNDIS。
 
-当前路线为原生 **ECM＋ADB**：一台 B31 已通过 Mac 原生枚举、DHCP、管理页、Google/Cloudflare HTTPS，以及同时使用 ADB、关闭恢复完整原厂 USB 组合和实体拔插自动恢复的验收。NCM 不作为这个用户目标的前置条件，旧实验入口继续停用。兼容固件、冷启动验证范围、网络服务顺序和运营商认证见 [Mac USB 直连说明](docs/MACOS-RNDIS.md) 与 [验证记录](docs/VALIDATION.md)。
+当前路线为原生 **ECM＋ADB**：一台 B31 已通过 Mac 原生枚举、DHCP、管理页、Google/Cloudflare HTTPS，以及同时使用 ADB、关闭恢复完整原厂 USB 组合和实体拔插与冷启动自动恢复的验收。NCM 不作为这个用户目标的前置条件，旧实验入口继续停用。兼容固件、冷启动验证范围、网络服务顺序和运营商认证见 [Mac USB 直连说明](docs/MACOS-RNDIS.md) 与 [验证记录](docs/VALIDATION.md)。
 
 Wi-Fi 接力入口为“小屏：网络 → Wi-Fi → 连接上游 Wi-Fi；网页：增强功能 → 网络”。密码可在小屏或已登录的网页输入；小屏提供独立字符页，连接失败后保留内存草稿供修改重试。要求 5G 主热点开启、访客热点关闭、USB 为 LAN；同频热点可能短暂断开重连。界面分别显示关联/出口和互联网探测，探测失败不自动改变出口。
 
