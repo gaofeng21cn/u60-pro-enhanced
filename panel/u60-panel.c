@@ -2201,7 +2201,7 @@ int main(int argc, char **argv)
 	if (argc > 1 && strcmp(argv[1], "watch") == 0)
 		return watch_main();
 	if (argc > 1 && strcmp(argv[1], "usb-macnet") == 0) {
-		fputs("USB live switching is unavailable pending enumeration and recovery validation.\n", stderr);
+		fputs("Legacy usb-macnet CLI is disabled; use the guarded panel-control action.\n", stderr);
 		return 1;
 	}
 	return ui_main();

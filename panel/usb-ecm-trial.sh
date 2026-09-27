@@ -1,7 +1,8 @@
 #!/bin/sh
-# Recovery is unqualified. Reject every writer before inspecting old state or
-# consulting environment variables; stale transactions must not restart it.
+# The old maintenance transaction is retired. Status delegates to the formal
+# owner; every legacy writer remains closed so stale transactions cannot bypass
+# the guarded user-facing switch.
 case "${1:-status}" in
  status) exec /data/u60-panel/enable-usb-macnet.sh status ;;
- *) printf '%s\n' '{"ok":false,"message":"ECM 切换与恢复尚未通过实机验收，未修改 USB"}'; exit 1 ;;
+ *) printf '%s\n' '{"ok":false,"message":"旧 ECM 试验入口已停用；请使用网络中的 Mac USB 联网正式开关"}'; exit 1 ;;
 esac

@@ -2,7 +2,7 @@
 
 为中兴 U60 Pro（MU5250）国行 **B28 / B31** 提供原生小屏界面、原厂网页增强、Clash/Mihomo、Tailscale、Wi-Fi 接力与 USB 网口管理。保留原厂固件和管理页，双击电源键可切换界面。
 
-当前版本的能力边界和验收状态见[产品基线](docs/BASELINE.md)；目标与完成标准见[产品计划](docs/PLAN.md)。
+当前版本的能力边界和验收状态见[产品基线](docs/BASELINE.md)；目标与完成标准见[产品计划](docs/PLAN.md)；全部主题入口见[文档导航](docs/README.md)。
 
 **当前版本：[v0.1.16-experimental](https://github.com/gaofeng21cn/u60-pro-enhanced/releases/tag/v0.1.16-experimental)**。这是实验版：支持固件检查和设备身份绑定，不代表全部网络与硬件组合已经验收。安装前请阅读[验证范围](docs/VALIDATION.md)。B31 的 Mac 数据线直连采用原生 ECM＋ADB，无需安装 Mac 软件；在“网络 → USB 数据线直连”开启一次并保存选择。已验收项目与仍需实物验证的范围见下文。
 
@@ -92,7 +92,7 @@ Wi-Fi 接力支持 **2.4GHz 和非 DFS 的 5GHz 上游**，并非仅限 2.4GHz�
 
 在增强网页“网络 → USB 数据线直连”或小屏“网络 → USB”开启 **Mac USB 联网**。Mac 网络设置中会出现 `ZTE Mobile Broadband`，通过 DHCP 获取地址，不需要安装驱动或运行 Mac 命令。关闭同一开关恢复原厂 RNDIS。
 
-当前路线为原生 **ECM＋ADB**：一台 B31 已通过 Mac 原生枚举、DHCP、管理页、Google/Cloudflare HTTPS，以及同时使用 ADB 和恢复完整原厂 USB 组合的验收。NCM 不作为这个用户目标的前置条件，旧实验入口继续停用。兼容固件、冷启动/拔插验证范围、网络服务顺序和运营商认证见 [Mac USB 直连说明](docs/MACOS-RNDIS.md) 与 [验证记录](docs/VALIDATION.md)。
+当前路线为原生 **ECM＋ADB**：一台 B31 已通过 Mac 原生枚举、DHCP、管理页、Google/Cloudflare HTTPS，以及同时使用 ADB、关闭恢复完整原厂 USB 组合和实体拔插自动恢复的验收。NCM 不作为这个用户目标的前置条件，旧实验入口继续停用。兼容固件、冷启动验证范围、网络服务顺序和运营商认证见 [Mac USB 直连说明](docs/MACOS-RNDIS.md) 与 [验证记录](docs/VALIDATION.md)。
 
 Wi-Fi 接力入口为“小屏：网络 → Wi-Fi → 连接上游 Wi-Fi；网页：增强功能 → 网络”。密码可在小屏或已登录的网页输入；小屏提供独立字符页，连接失败后保留内存草稿供修改重试。要求 5G 主热点开启、访客热点关闭、USB 为 LAN；同频热点可能短暂断开重连。界面分别显示关联/出口和互联网探测，探测失败不自动改变出口。
 
