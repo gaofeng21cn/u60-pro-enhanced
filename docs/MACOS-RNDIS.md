@@ -22,7 +22,7 @@ B31 实际 USB owner 是中兴内核、`zte_ubus_bsp_usb` 和 `/sbin/usb/composi
 
 ## 验证范围
 
-一台 B31 已在 Mac 上完成 ECM 原生枚举、DHCP、管理页 HTTP 200、Google 204、Cloudflare 200，TLS 校验均为 0；ECM 期间主机侧 ADB 命令成功。通过中兴原厂 owner 恢复后，完整原厂 USB 功能组合、主机 ADB 和独立 SSH 均正常，不需要拔线或重启。
+一台 B31 已在 Mac 上完成 ECM 原生枚举、DHCP、管理页 HTTP 200、Google 204、Cloudflare 200，TLS 校验均为 0；ECM 期间主机侧 ADB 命令成功。通过中兴原厂 owner 恢复后，完整原厂 USB 功能组合、主机 ADB 和独立 SSH 均正常，不需要拔线或重启。完整候选版的正式开关与实体拔插后恢复也通过相同业务验证；冷启动仍待实机验收。
 
 这些结果替代旧 9059 路线的失败恢复结论，但不证明所有设备、线材或 USB 集线器都已兼容。正式开关、拔插、冷启动及其他设备的具体验收范围以 [验证记录](VALIDATION.md) 为准。旧 `usb-ecm-trial.sh`、`usb-ncm-trial.sh` 和旧 RPC 写入口保持停用，不能用它们启用新功能。
 

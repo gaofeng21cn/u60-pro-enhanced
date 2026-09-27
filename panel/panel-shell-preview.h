@@ -281,6 +281,14 @@ static void shell_preview_management(struct drm_buf*b,const char*dir){
  shell_hit(&a,SH_CHOICE+1);assert(a.shell.modal==2&&!strcmp(a.shell.message,"关闭代理 · 直连"));assert(!strcmp(sh_str(a.shell.pending_args,"operation",""),"stop"));shell_render(b,&a);shell_preview_hits(&a);shell_preview_write(b,dir,332);shell_hit(&a,SH_CANCEL);assert(!a.shell.busy&&!a.shell.pending_args);
  a.shell.tab=0;a.shell.subpage=0;shell_render(b,&a);shell_preview_hits(&a);for(int i=0;i<a.nhits;i++)assert(a.hits[i].y1-a.hits[i].y0>=44);
  shell_hit(&a,SH_SECTION+25);assert(a.shell.tab==1&&!strcmp(a.shell.section,"clients"));
+ sh_close(&a);
+ for(int enabled=0;enabled<2;enabled++){
+  cJSON*toggle_item=cJSON_Parse("{\"label\":\"Mac USB 联网\",\"type\":\"toggle\",\"action\":\"usb.macnet.mode\",\"confirm\":true,\"args\":{}}");
+  cJSON_AddBoolToObject(sh_get(toggle_item,"args"),"enabled",enabled);sh_open_item(&a,toggle_item);cJSON_Delete(toggle_item);
+  assert(a.shell.modal==2&&cJSON_IsTrue(sh_get(a.shell.pending_args,"enabled"))==enabled);
+  assert(!strcmp(a.shell.message,enabled?"开启 Mac USB 联网":"关闭 Mac USB 联网"));
+  shell_render(b,&a);shell_preview_hits(&a);shell_hit(&a,SH_CANCEL);assert(!a.shell.busy&&!a.shell.pending_args);
+ }
  sh_close(&a);cJSON_Delete(a.shell.snapshot);puts("PASS: child management navigation/back, preserved action routing, current choices, selected confirmation, no write on cancel, home targets >=44px");
 }
 static void shell_preview_relay_input(struct drm_buf*b,const char*dir){

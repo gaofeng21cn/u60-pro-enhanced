@@ -163,6 +163,8 @@ static void sh_issue(struct app*a,cJSON*args){
  else sh_close(a);
 }
 static void sh_prepare(struct app*a,cJSON*args){
+ if(!strcmp(sh_str(a->shell.draft,"type",""),"toggle")&&cJSON_IsBool(sh_get(args,"enabled")))
+  snprintf(a->shell.message,sizeof(a->shell.message),"%s %s",cJSON_IsTrue(sh_get(args,"enabled"))?"开启":"关闭",sh_str(a->shell.draft,"label","此功能"));
  if(cJSON_IsTrue(sh_get(a->shell.draft,"confirm"))){cJSON_Delete(a->shell.pending_args);a->shell.pending_args=cJSON_Duplicate(args,1);a->shell.modal=2;a->shell.editor=0;}
  else sh_issue(a,args);
 }
